@@ -1,0 +1,342 @@
+rules_version = '2';
+
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Access Model:
+//   Open worship-team access without Firebase Auth sign-in
+//   (explicitly designed for church team collaboration with zero PII).
+//   All collections are hardened with strict schemas, data types,
+//   size limits, value constraints, and immutable-field protection.
+//
+// Collection: folders
+// Document ID: UUID | '00000000-0000-4000-8000-000000000001' | '00000000-0000-4000-8000-000000000002' | '__healthcheck__'
+// Fields (folder document):
+//   - id: string (required, immutable, == folderId, 1..100 chars, not '__*')
+//   - name: string (required, 1..120 chars)
+//   - isDefault: bool (required, immutable, true only for default folder IDs)
+//   - sortOrder: number (required, -10000..1000000)
+//   - createdAt: string (required, immutable, ISO 8601 timestamp, 19..40 chars)
+//   - updatedAt: string (required, ISO 8601 timestamp, 19..40 chars)
+//   - deletedAt: string | null (required, must be null for default folders)
+// Fields (__healthcheck__ document):
+//   - id: string (required, == '__healthcheck__')
+//   - ok: bool (required, == true)
+//   - at: string (required, ISO 8601 timestamp, 19..40 chars)
+//
+// Collection: songs
+// Document ID: UUID
+// Fields:
+//   - id: string (required, immutable, == songId, 1..100 chars, not '__*')
+//   - folderId: string (required, 1..100 chars, not '__*')
+//   - title: string (required, 1..200 chars)
+//   - fileName: string (required, 1..300 chars)
+//   - fileType: string (required, 'pdf' | 'image')
+//   - mimeType: string (required, 1..120 chars)
+//   - fileSize: number (required, 0..1073741824)
+//   - storagePath: string (required, 1..500 chars, relative non-traversal path)
+//   - storageMode: string (optional, 'firestore' | 'storage')
+//   - chunkCount: number | null (optional, 0..10000 when numeric)
+//   - songKey: string | null (required, 0..80 chars when string)
+//   - tempo: string | null (required, 0..80 chars when string)
+//   - notes: string | null (required, 0..2000 chars when string)
+//   - createdAt: string (required, immutable, ISO 8601 timestamp, 19..40 chars)
+//   - updatedAt: string (required, ISO 8601 timestamp, 19..40 chars)
+//   - deletedAt: string | null (required, ISO 8601 timestamp when soft-deleted)
+//
+// Subcollection: songs/{songId}/chunks
+// Document ID: chunkId (e.g., '0000', 1..40 chars, not '__*')
+// Fields:
+//   - songId: string (required, immutable, == parent songId, 1..100 chars)
+//   - chunkIndex: int (required, immutable, 0 <= chunkIndex < totalChunks)
+//   - totalChunks: int (required, 1..10000)
+//   - data: string (required, base64 chunk payload, 0..700000 chars)
+//
+// Collection: playlists
+// Document ID: UUID
+// Fields:
+//   - id: string (required, immutable, == playlistId, 1..100 chars, not '__*')
+//   - name: string (required, 1..150 chars)
+//   - description: string | null (required, 0..1000 chars when string)
+//   - eventDate: string | null (required, 0..40 chars when string)
+//   - createdAt: string (required, immutable, ISO 8601 timestamp, 19..40 chars)
+//   - updatedAt: string (required, ISO 8601 timestamp, 19..40 chars)
+//   - deletedAt: string | null (required, ISO 8601 timestamp when soft-deleted)
+//
+// Collection: playlist_items
+// Document ID: UUID
+// Fields:
+//   - id: string (required, immutable, == itemId, 1..100 chars, not '__*')
+//   - playlistId: string (required, immutable, 1..100 chars, not '__*')
+//   - songId: string (required, immutable, 1..100 chars, not '__*')
+//   - position: int (required, 0..100000)
+//   - createdAt: string (required, immutable, ISO 8601 timestamp, 19..40 chars)
+//   - updatedAt: string (required, ISO 8601 timestamp, 19..40 chars)
+//   - deletedAt: string | null (required, ISO 8601 timestamp when soft-deleted)
+//
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    // Validate required fields exist on the incoming document
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    // Validate document contains only allowed schema fields
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // Ensure immutable fields are not added, removed, or modified on update
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    // Validate non-empty bounded entity/reference ID (excluding reserved '__*' IDs)
+    function isValidEntityId(val) {
+      return val is string &&
+        val.size() >= 1 &&
+        val.size() <= 100 &&
+        !val.matches("^__.*");
+    }
+
+    // Validate bounded non-empty string
+    function isNonEmptyString(val, maxLen) {
+      return val is string &&
+        val.size() >= 1 &&
+        val.size() <= maxLen;
+    }
+
+    // Validate nullable bounded string
+    function isNullableString(val, maxLen) {
+      return val == null || (val is string && val.size() <= maxLen);
+    }
+
+    // Validate bounded ISO 8601 timestamp string (e.g., 2026-11-10T16:13:41.123Z)
+    function isValidDateString(val) {
+      return val is string &&
+        val.size() >= 19 &&
+        val.size() <= 40 &&
+        val.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})?$");
+    }
+
+    // Validate nullable ISO 8601 timestamp string (for soft-delete deletedAt)
+    function isNullableDateString(val) {
+      return val == null || isValidDateString(val);
+    }
+
+    // Validate relative storage path (bounded, no leading slash or '..' traversal segment)
+    function isValidStoragePath(val) {
+      return val is string &&
+        val.size() >= 1 &&
+        val.size() <= 500 &&
+        !val.matches("^/.*") &&
+        !val.matches("(^|.*/)\\.\\.(/.*|$)");
+    }
+
+    // Check if folderId is one of the two protected default folders (Chords / Lyrics)
+    function isDefaultFolderId(folderId) {
+      return folderId in [
+        '00000000-0000-4000-8000-000000000001',
+        '00000000-0000-4000-8000-000000000002'
+      ];
+    }
+
+    // ===============================================================
+    // Domain Validators (Used in BOTH create and update)
+    // ===============================================================
+
+    function isValidHealthcheck(data) {
+      return hasOnlyAllowedFields(['id', 'ok', 'at']) &&
+        hasRequiredFields(['id', 'ok', 'at']) &&
+        data.id is string &&
+        data.id == '__healthcheck__' &&
+        data.ok is bool &&
+        data.ok == true &&
+        isValidDateString(data.at);
+    }
+
+    function isValidFolder(data, folderId) {
+      let requiredFields = [
+        'id', 'name', 'isDefault', 'sortOrder',
+        'createdAt', 'updatedAt', 'deletedAt'
+      ];
+      return hasOnlyAllowedFields(requiredFields) &&
+        hasRequiredFields(requiredFields) &&
+        isValidEntityId(data.id) &&
+        data.id == folderId &&
+        isNonEmptyString(data.name, 120) &&
+        data.isDefault is bool &&
+        data.sortOrder is number &&
+        data.sortOrder >= -10000 &&
+        data.sortOrder <= 1000000 &&
+        isValidDateString(data.createdAt) &&
+        isValidDateString(data.updatedAt) &&
+        isNullableDateString(data.deletedAt) &&
+        (
+          isDefaultFolderId(folderId)
+            ? (data.isDefault == true && data.deletedAt == null)
+            : (data.isDefault == false)
+        );
+    }
+
+    function isValidSong(data, songId) {
+      let allowedFields = [
+        'id', 'folderId', 'title', 'fileName', 'fileType', 'mimeType',
+        'fileSize', 'storagePath', 'storageMode', 'chunkCount',
+        'songKey', 'tempo', 'notes', 'createdAt', 'updatedAt', 'deletedAt'
+      ];
+      let requiredFields = [
+        'id', 'folderId', 'title', 'fileName', 'fileType', 'mimeType',
+        'fileSize', 'storagePath', 'songKey', 'tempo', 'notes',
+        'createdAt', 'updatedAt', 'deletedAt'
+      ];
+      return hasOnlyAllowedFields(allowedFields) &&
+        hasRequiredFields(requiredFields) &&
+        isValidEntityId(data.id) &&
+        data.id == songId &&
+        isValidEntityId(data.folderId) &&
+        isNonEmptyString(data.title, 200) &&
+        isNonEmptyString(data.fileName, 300) &&
+        data.fileType is string &&
+        data.fileType in ['pdf', 'image'] &&
+        isNonEmptyString(data.mimeType, 120) &&
+        data.fileSize is number &&
+        data.fileSize >= 0 &&
+        data.fileSize <= 1073741824 &&
+        isValidStoragePath(data.storagePath) &&
+        (!('storageMode' in data) || (data.storageMode is string && data.storageMode in ['firestore', 'storage'])) &&
+        (!('chunkCount' in data) || data.chunkCount == null || (data.chunkCount is number && data.chunkCount >= 0 && data.chunkCount <= 10000)) &&
+        isNullableString(data.songKey, 80) &&
+        isNullableString(data.tempo, 80) &&
+        isNullableString(data.notes, 2000) &&
+        isValidDateString(data.createdAt) &&
+        isValidDateString(data.updatedAt) &&
+        isNullableDateString(data.deletedAt);
+    }
+
+    function isValidSongChunk(data, songId, chunkId) {
+      let requiredFields = ['songId', 'chunkIndex', 'totalChunks', 'data'];
+      return hasOnlyAllowedFields(requiredFields) &&
+        hasRequiredFields(requiredFields) &&
+        isValidEntityId(songId) &&
+        isValidEntityId(chunkId) &&
+        chunkId.size() <= 40 &&
+        data.songId is string &&
+        data.songId == songId &&
+        data.totalChunks is int &&
+        data.totalChunks >= 1 &&
+        data.totalChunks <= 10000 &&
+        data.chunkIndex is int &&
+        data.chunkIndex >= 0 &&
+        data.chunkIndex < data.totalChunks &&
+        data.data is string &&
+        data.data.size() >= 0 &&
+        data.data.size() <= 700000;
+    }
+
+    function isValidPlaylist(data, playlistId) {
+      let requiredFields = [
+        'id', 'name', 'description', 'eventDate',
+        'createdAt', 'updatedAt', 'deletedAt'
+      ];
+      return hasOnlyAllowedFields(requiredFields) &&
+        hasRequiredFields(requiredFields) &&
+        isValidEntityId(data.id) &&
+        data.id == playlistId &&
+        isNonEmptyString(data.name, 150) &&
+        isNullableString(data.description, 1000) &&
+        isNullableString(data.eventDate, 40) &&
+        isValidDateString(data.createdAt) &&
+        isValidDateString(data.updatedAt) &&
+        isNullableDateString(data.deletedAt);
+    }
+
+    function isValidPlaylistItem(data, itemId) {
+      let requiredFields = [
+        'id', 'playlistId', 'songId', 'position',
+        'createdAt', 'updatedAt', 'deletedAt'
+      ];
+      return hasOnlyAllowedFields(requiredFields) &&
+        hasRequiredFields(requiredFields) &&
+        isValidEntityId(data.id) &&
+        data.id == itemId &&
+        isValidEntityId(data.playlistId) &&
+        isValidEntityId(data.songId) &&
+        data.position is int &&
+        data.position >= 0 &&
+        data.position <= 100000 &&
+        isValidDateString(data.createdAt) &&
+        isValidDateString(data.updatedAt) &&
+        isNullableDateString(data.deletedAt);
+    }
+
+    // ===============================================================
+    // Collection Rules (Default Deny for all unlisted paths)
+    // ===============================================================
+
+    match /folders/{folderId} {
+      allow read: if true;
+
+      allow create: if (
+        folderId == '__healthcheck__' &&
+        isValidHealthcheck(request.resource.data)
+      ) || (
+        folderId != '__healthcheck__' &&
+        isValidFolder(request.resource.data, folderId)
+      );
+
+      allow update: if (
+        folderId == '__healthcheck__' &&
+        isValidHealthcheck(request.resource.data)
+      ) || (
+        folderId != '__healthcheck__' &&
+        isValidFolder(request.resource.data, folderId) &&
+        areImmutableFieldsUnchanged(['id', 'createdAt', 'isDefault'])
+      );
+
+      // Only the temporary connection-test doc can be hard-deleted;
+      // default folders cannot be hard-deleted or soft-deleted, and custom folders use deletedAt.
+      allow delete: if folderId == '__healthcheck__';
+    }
+
+    match /songs/{songId} {
+      allow read: if true;
+      allow create: if isValidSong(request.resource.data, songId);
+      allow update: if isValidSong(request.resource.data, songId) &&
+        areImmutableFieldsUnchanged(['id', 'createdAt']);
+      allow delete: if false;
+
+      match /chunks/{chunkId} {
+        allow read: if true;
+        allow create: if isValidSongChunk(request.resource.data, songId, chunkId);
+        allow update: if isValidSongChunk(request.resource.data, songId, chunkId) &&
+          areImmutableFieldsUnchanged(['songId', 'chunkIndex']);
+        allow delete: if true;
+      }
+    }
+
+    match /playlists/{playlistId} {
+      allow read: if true;
+      allow create: if isValidPlaylist(request.resource.data, playlistId);
+      allow update: if isValidPlaylist(request.resource.data, playlistId) &&
+        areImmutableFieldsUnchanged(['id', 'createdAt']);
+      allow delete: if false;
+    }
+
+    match /playlist_items/{itemId} {
+      allow read: if true;
+      allow create: if isValidPlaylistItem(request.resource.data, itemId);
+      allow update: if isValidPlaylistItem(request.resource.data, itemId) &&
+        areImmutableFieldsUnchanged(['id', 'playlistId', 'songId', 'createdAt']);
+      allow delete: if false;
+    }
+  }
+}

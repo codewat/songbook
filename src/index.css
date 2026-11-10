@@ -1,0 +1,41 @@
+@import "tailwindcss";
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    overscroll-behavior-y: contain;
+  }
+}
+
+/* Custom sleek scrollbars for music stands & desktop */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.45);
+}
+
+/* Stage dark-mode invert for white chord PDFs */
+.stage-invert-pdf canvas {
+  filter: invert(0.92) hue-rotate(180deg) contrast(1.08);
+}
+
+.stage-invert-image {
+  filter: invert(0.92) hue-rotate(180deg) contrast(1.08);
+}
