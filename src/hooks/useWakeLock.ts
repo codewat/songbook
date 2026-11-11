@@ -13,6 +13,10 @@ export function useWakeLock(initialEnabled = true) {
   const supported =
     typeof navigator !== 'undefined' && 'wakeLock' in navigator;
 
+  useEffect(() => {
+    setEnabled(initialEnabled);
+  }, [initialEnabled]);
+
   const acquire = useCallback(async () => {
     if (!supported || !enabled) return;
     try {

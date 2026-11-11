@@ -109,3 +109,8 @@ export interface SyncStatusInfo {
   lastSyncAt: string | null;
   errorMessage: string | null;
 }
+
+export interface StagePreferences {
+  defaultStageInvert: boolean;
+  defaultKeepAwake: boolean;
+}

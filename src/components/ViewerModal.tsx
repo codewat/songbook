@@ -19,7 +19,7 @@ import {
 import { getSongBlob } from '../db/localDb';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { syncManager } from '../sync/syncEngine';
-import { UNFILED_FOLDER_ID, type Folder, type Song } from '../types/models';
+import { UNFILED_FOLDER_ID, type Folder, type Song, type StagePreferences } from '../types/models';
 import { isPowerPointType } from '../utils/format';
 import { parsePresentationBlob, type ParsedPresentation } from '../utils/powerpoint';
 
@@ -29,6 +29,7 @@ interface ViewerModalProps {
   songsQueue: Song[];
   initialIndex: number;
   folders: Folder[];
+  stagePrefs?: StagePreferences;
   onClose: () => void;
 }
 
@@ -36,11 +37,14 @@ export function ViewerModal({
   songsQueue,
   initialIndex,
   folders,
+  stagePrefs,
   onClose,
 }: ViewerModalProps) {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [zoom, setZoom] = useState(1);
-  const [stageDarkSheet, setStageDarkSheet] = useState(false);
+  const [stageDarkSheet, setStageDarkSheet] = useState(
+    stagePrefs?.defaultStageInvert ?? false
+  );
   const [showQueueDrawer, setShowQueueDrawer] = useState(false);
 
   const [loading, setLoading] = useState(true);
@@ -57,7 +61,7 @@ export function ViewerModal({
 
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const slideViewportRef = useRef<HTMLDivElement>(null);
-  const wakeLock = useWakeLock(true);
+  const wakeLock = useWakeLock(stagePrefs?.defaultKeepAwake ?? true);
 
   const currentSong = songsQueue[currentIndex];
   const folderMap = new Map(folders.map((f) => [f.id, f.name]));
@@ -66,6 +70,10 @@ export function ViewerModal({
   useEffect(() => {
     setCurrentIndex(initialIndex);
   }, [initialIndex]);
+
+  useEffect(() => {
+    setStageDarkSheet(stagePrefs?.defaultStageInvert ?? false);
+  }, [stagePrefs?.defaultStageInvert]);
 
   // Measure available slide stage viewport dynamically across mobile/tablet/desktop
   useEffect(() => {

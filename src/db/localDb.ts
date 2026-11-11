@@ -11,6 +11,7 @@ import {
   type Playlist,
   type PlaylistItem,
   type Song,
+  type StagePreferences,
 } from '../types/models';
 import {
   cleanSongTitleFromFilename,
@@ -682,6 +683,65 @@ export async function getMeta<T>(key: string): Promise<T | null> {
 export async function setMeta<T>(key: string, value: T): Promise<void> {
   const db = await getDb();
   await db.put('meta', { key, value });
+}
+
+export function hasBuiltInCloudConfig(): boolean {
+  const envApiKey = import.meta.env?.VITE_FIREBASE_API_KEY?.trim();
+  const envProjectId = import.meta.env?.VITE_FIREBASE_PROJECT_ID?.trim();
+  const envAppId = import.meta.env?.VITE_FIREBASE_APP_ID?.trim();
+  return Boolean(envApiKey && envProjectId && envAppId);
+}
+
+export const STAGE_PREFS_STORAGE_KEY = 'worshipdeck-stage-prefs';
+
+export const DEFAULT_STAGE_PREFERENCES: StagePreferences = {
+  defaultStageInvert: false,
+  defaultKeepAwake: true,
+};
+
+export async function getStagePreferences(): Promise<StagePreferences> {
+  const stored = await getMeta<Partial<StagePreferences>>('stagePrefs');
+  if (stored && typeof stored === 'object') {
+    return {
+      defaultStageInvert: Boolean(stored.defaultStageInvert),
+      defaultKeepAwake:
+        stored.defaultKeepAwake === undefined ? true : Boolean(stored.defaultKeepAwake),
+    };
+  }
+  if (typeof localStorage !== 'undefined') {
+    try {
+      const raw = localStorage.getItem(STAGE_PREFS_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<StagePreferences>;
+        return {
+          defaultStageInvert: Boolean(parsed.defaultStageInvert),
+          defaultKeepAwake:
+            parsed.defaultKeepAwake === undefined ? true : Boolean(parsed.defaultKeepAwake),
+        };
+      }
+    } catch {
+      // Ignore invalid localStorage payload
+    }
+  }
+  return { ...DEFAULT_STAGE_PREFERENCES };
+}
+
+export async function saveStagePreferences(
+  prefs: StagePreferences
+): Promise<StagePreferences> {
+  const normalized: StagePreferences = {
+    defaultStageInvert: Boolean(prefs.defaultStageInvert),
+    defaultKeepAwake: Boolean(prefs.defaultKeepAwake),
+  };
+  await setMeta('stagePrefs', normalized);
+  if (typeof localStorage !== 'undefined') {
+    try {
+      localStorage.setItem(STAGE_PREFS_STORAGE_KEY, JSON.stringify(normalized));
+    } catch {
+      // Ignore storage quota issues
+    }
+  }
+  return normalized;
 }
 
 export async function getSavedCloudConfig(): Promise<CloudConfig | null> {

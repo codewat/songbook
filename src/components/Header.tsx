@@ -136,7 +136,8 @@ export function Header({
         <button
           type="button"
           onClick={onSettingsClick}
-          title="Cloud Sync & Offline Settings"
+          title="Settings, Downloads & Offline Sync"
+          aria-label="Open Settings"
           className="rounded-xl border border-slate-800 bg-slate-900 p-2 text-slate-300 hover:bg-slate-800 hover:text-white"
         >
           <Settings className="h-4 w-4" />

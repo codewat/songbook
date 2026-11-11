@@ -6,6 +6,7 @@ import {
   cleanupLegacyDefaultFolders,
   createFolder,
   createPlaylist,
+  DEFAULT_STAGE_PREFERENCES,
   deleteFolder,
   deletePlaylist,
   deleteSong,
@@ -16,10 +17,12 @@ import {
   getAllCachedSongIds,
   getOfflineStorageStats,
   getSavedCloudConfig,
+  getStagePreferences,
   removePlaylistItem,
   renameFolder,
   reorderPlaylistItems,
   saveCloudConfig,
+  saveStagePreferences,
   updatePlaylist,
   updateSongMeta,
 } from './db/localDb';
@@ -29,6 +32,7 @@ import {
   type Playlist,
   type PlaylistItem,
   type Song,
+  type StagePreferences,
   type SyncStatusInfo,
 } from './types/models';
 import { syncManager } from './sync/syncEngine';
@@ -61,6 +65,9 @@ export function App() {
     totalBytes: 0,
   });
   const [churchName, setChurchName] = useState('Church Worship Team');
+  const [stagePrefs, setStagePrefs] = useState<StagePreferences>(
+    DEFAULT_STAGE_PREFERENCES
+  );
 
   const [route, setRoute] = useState<ActiveRoute>({ type: 'all' });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -105,7 +112,7 @@ export function App() {
 
   const refreshLocalData = useCallback(async () => {
     await cleanupLegacyDefaultFolders();
-    const [f, s, p, pi, cached, stats, cfg] = await Promise.all([
+    const [f, s, p, pi, cached, stats, cfg, prefs] = await Promise.all([
       getActiveFolders(),
       getActiveSongs(),
       getActivePlaylists(),
@@ -113,6 +120,7 @@ export function App() {
       getAllCachedSongIds(),
       getOfflineStorageStats(),
       getSavedCloudConfig(),
+      getStagePreferences(),
     ]);
     setFolders(f);
     setSongs(s);
@@ -121,6 +129,7 @@ export function App() {
     setCachedSongIds(cached);
     setStorageStats(stats);
     setChurchName(cfg?.churchName || 'Church Worship Team');
+    setStagePrefs(prefs);
   }, []);
 
   // Bootstrap app, process #setup= invite links, and initialize sync
@@ -598,14 +607,22 @@ export function App() {
 
       <SyncSettingsModal
         open={settingsOpen}
+        churchName={churchName}
         syncStatus={syncStatus}
         storageStats={storageStats}
-        totalSongsCount={songs.length}
+        songs={songs}
+        folders={folders}
+        stagePrefs={stagePrefs}
+        onStagePrefsChange={async (next) => {
+          const saved = await saveStagePreferences(next);
+          setStagePrefs(saved);
+        }}
         onClose={() => setSettingsOpen(false)}
         onConfigChanged={async () => {
           await refreshLocalData();
           await syncManager.emitStatus();
         }}
+        onShowToast={showToast}
       />
 
       <ConfirmModal
@@ -622,6 +639,7 @@ export function App() {
           songsQueue={viewerState.queue}
           initialIndex={viewerState.index}
           folders={folders}
+          stagePrefs={stagePrefs}
           onClose={() => setViewerState(null)}
         />
       )}

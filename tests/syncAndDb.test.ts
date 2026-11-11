@@ -1,13 +1,14 @@
 import 'fake-indexeddb/auto';
 import * as CFB from 'cfb';
 import JSZip from 'jszip';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   addSongFile,
   addSongsToPlaylist,
   cleanupLegacyDefaultFolders,
   createFolder,
   createPlaylist,
+  DEFAULT_STAGE_PREFERENCES,
   deleteFolder,
   deleteSong,
   getActiveFolders,
@@ -18,16 +19,24 @@ import {
   getOutboxOps,
   getPlaylistItems,
   getSongBlob,
+  getStagePreferences,
+  hasBuiltInCloudConfig,
   markEntitySynced,
   mergeRemoteData,
   reorderPlaylistItems,
   resetDbConnectionForTests,
+  saveStagePreferences,
   updateSongMeta,
 } from '../src/db/localDb';
 import {
   LEGACY_DEFAULT_FOLDER_IDS,
   UNFILED_FOLDER_ID,
 } from '../src/types/models';
+import {
+  buildSongsArchiveZip,
+  buildUniqueZipPath,
+  formatExportZipFileName,
+} from '../src/utils/exportZip';
 import {
   PPTX_MIME,
   PPT_MIME,
@@ -451,5 +460,85 @@ describe('WorshipDeck Offline Database, PowerPoint Support & Outbox Sync', () =>
     const b64 = bytesToBase64(original);
     const decoded = base64ToBytes(b64);
     expect(Array.from(decoded)).toEqual(Array.from(original));
+  });
+
+  it('persists stage display preferences and detects built-in cloud config safely', async () => {
+    const initial = await getStagePreferences();
+    expect(initial).toEqual(DEFAULT_STAGE_PREFERENCES);
+
+    await saveStagePreferences({
+      defaultStageInvert: true,
+      defaultKeepAwake: false,
+    });
+    const updated = await getStagePreferences();
+    expect(updated).toEqual({
+      defaultStageInvert: true,
+      defaultKeepAwake: false,
+    });
+
+    vi.stubEnv('VITE_FIREBASE_API_KEY', 'test-api-key');
+    vi.stubEnv('VITE_FIREBASE_PROJECT_ID', 'test-project');
+    vi.stubEnv('VITE_FIREBASE_APP_ID', '1:123:web:456');
+    expect(hasBuiltInCloudConfig()).toBe(true);
+
+    vi.stubEnv('VITE_FIREBASE_API_KEY', '');
+    expect(hasBuiltInCloudConfig()).toBe(false);
+    vi.unstubAllEnvs();
+  });
+
+  it('exports active songs into a folder-organized ZIP archive and deduplicates names', async () => {
+    const used = new Set<string>();
+    expect(buildUniqueZipPath(used, 'Chords/Team', 'Grace.pdf')).toBe('Chords_Team/Grace.pdf');
+    expect(buildUniqueZipPath(used, 'Chords/Team', 'Grace.pdf')).toBe('Chords_Team/Grace (2).pdf');
+    expect(formatExportZipFileName(new Date('2026-11-10T12:00:00Z'))).toMatch(
+      /^worshipdeck-songs-\d{4}-\d{2}-\d{2}\.zip$/
+    );
+
+    const worshipFolder = await createFolder('Sunday Acoustic');
+    const chordFile = new File([new Uint8Array([37, 80, 68, 70])], 'Oceans.pdf', {
+      type: 'application/pdf',
+    });
+    const duplicateNameFile = new File([new Uint8Array([1, 2, 3, 4])], 'Oceans.pdf', {
+      type: 'application/pdf',
+    });
+    const slideFile = new File([new Uint8Array([80, 75, 3, 4])], 'Victory.pptx', {
+      type: PPTX_MIME,
+    });
+    const missingBlobFile = new File([new Uint8Array([9, 9])], 'MissingOffline.pdf', {
+      type: 'application/pdf',
+    });
+
+    const song1 = await addSongFile({ file: chordFile, folderId: worshipFolder.id });
+    const song2 = await addSongFile({ file: duplicateNameFile, folderId: worshipFolder.id });
+    const song3 = await addSongFile({ file: slideFile, folderId: UNFILED_FOLDER_ID });
+    const missingSong = await addSongFile({ file: missingBlobFile, folderId: UNFILED_FOLDER_ID });
+
+    // Remove one blob to verify missing offline file skipping does not fail archive generation
+    const db = await getDb();
+    await db.delete('blobs', missingSong.id);
+
+    const progressUpdates: number[] = [];
+    const result = await buildSongsArchiveZip({
+      songs: [song1, song2, song3, missingSong],
+      folders: [worshipFolder],
+      resolveBlob: async (song) => (await getSongBlob(song.id))?.blob ?? null,
+      onProgress: (p) => progressUpdates.push(p.processed),
+    });
+
+    expect(result.includedCount).toBe(3);
+    expect(result.skippedSongs.map((s) => s.id)).toEqual([missingSong.id]);
+    expect(progressUpdates.length).toBeGreaterThan(0);
+
+    const zipBytes = new Uint8Array(await result.blob.arrayBuffer());
+    const unpacked = await JSZip.loadAsync(zipBytes);
+    const entryNames = Object.values(unpacked.files)
+      .filter((entry) => !entry.dir)
+      .map((entry) => entry.name)
+      .sort();
+    expect(entryNames).toEqual([
+      'All Songs/Victory.pptx',
+      'Sunday Acoustic/Oceans (2).pdf',
+      'Sunday Acoustic/Oceans.pdf',
+    ]);
   });
 });
