@@ -1,4 +1,8 @@
-import type { CloudConfig } from '../types/models';
+import type { CloudConfig, SongFileType } from '../types/models';
+
+export const PPTX_MIME =
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+export const PPT_MIME = 'application/vnd.ms-powerpoint';
 
 export function createUuid(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -46,11 +50,30 @@ export function sanitizeStorageFileName(fileName: string): string {
     .slice(0, 120);
 }
 
-export function detectFileType(file: { name: string; type: string }): 'pdf' | 'image' | null {
+export function detectFileType(file: { name: string; type: string }): SongFileType | null {
   const mime = (file.type || '').toLowerCase();
   const name = (file.name || '').toLowerCase();
+
   if (mime === 'application/pdf' || name.endsWith('.pdf')) {
     return 'pdf';
+  }
+  if (
+    name.endsWith('.pptx') ||
+    name.endsWith('.ppsx') ||
+    mime.includes('presentationml.presentation') ||
+    mime.includes('presentationml.slideshow')
+  ) {
+    return 'pptx';
+  }
+  if (
+    name.endsWith('.ppt') ||
+    name.endsWith('.pps') ||
+    mime === PPT_MIME ||
+    mime === 'application/mspowerpoint' ||
+    mime === 'application/powerpoint' ||
+    mime === 'application/x-mspowerpoint'
+  ) {
+    return 'ppt';
   }
   if (
     mime.startsWith('image/') ||
@@ -59,6 +82,17 @@ export function detectFileType(file: { name: string; type: string }): 'pdf' | 'i
     return 'image';
   }
   return null;
+}
+
+export function isPowerPointType(fileType: SongFileType): boolean {
+  return fileType === 'ppt' || fileType === 'pptx';
+}
+
+export function defaultMimeForFileType(fileType: SongFileType): string {
+  if (fileType === 'pdf') return 'application/pdf';
+  if (fileType === 'pptx') return PPTX_MIME;
+  if (fileType === 'ppt') return PPT_MIME;
+  return 'image/png';
 }
 
 export function bytesToBase64(bytes: Uint8Array): string {

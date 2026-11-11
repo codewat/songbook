@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
-import { FileText, ListMusic, Music2, Layers } from 'lucide-react';
+import { Layers, Library, ListMusic, Upload } from 'lucide-react';
 import {
   addSongFile,
   addSongsToPlaylist,
+  cleanupLegacyDefaultFolders,
   createFolder,
   createPlaylist,
   deleteFolder,
   deletePlaylist,
   deleteSong,
-  ensureDefaultFolders,
   getActiveFolders,
   getActivePlaylists,
   getActiveSongs,
@@ -24,8 +24,7 @@ import {
   updateSongMeta,
 } from './db/localDb';
 import {
-  DEFAULT_CHORDS_FOLDER_ID,
-  DEFAULT_LYRICS_FOLDER_ID,
+  UNFILED_FOLDER_ID,
   type Folder,
   type Playlist,
   type PlaylistItem,
@@ -63,10 +62,7 @@ export function App() {
   });
   const [churchName, setChurchName] = useState('Church Worship Team');
 
-  const [route, setRoute] = useState<ActiveRoute>({
-    type: 'folder',
-    folderId: DEFAULT_CHORDS_FOLDER_ID,
-  });
+  const [route, setRoute] = useState<ActiveRoute>({ type: 'all' });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -108,7 +104,7 @@ export function App() {
   }, []);
 
   const refreshLocalData = useCallback(async () => {
-    await ensureDefaultFolders();
+    await cleanupLegacyDefaultFolders();
     const [f, s, p, pi, cached, stats, cfg] = await Promise.all([
       getActiveFolders(),
       getActiveSongs(),
@@ -206,15 +202,14 @@ export function App() {
   useEffect(() => {
     if (
       route.type === 'folder' &&
-      folders.length > 0 &&
       !folders.some((f) => f.id === route.folderId)
     ) {
-      setRoute({ type: 'folder', folderId: DEFAULT_CHORDS_FOLDER_ID });
+      setRoute({ type: 'all' });
     } else if (
       route.type === 'playlist' &&
       !playlists.some((p) => p.id === route.playlistId)
     ) {
-      setRoute({ type: 'folder', folderId: DEFAULT_CHORDS_FOLDER_ID });
+      setRoute({ type: 'all' });
     }
   }, [route, folders, playlists]);
 
@@ -391,7 +386,7 @@ export function App() {
       : null;
 
   const defaultUploadFolderId =
-    route.type === 'folder' ? route.folderId : DEFAULT_CHORDS_FOLDER_ID;
+    route.type === 'folder' ? route.folderId : UNFILED_FOLDER_ID;
 
   const defaultUploadPlaylistId =
     route.type === 'playlist' ? route.playlistId : null;
@@ -515,31 +510,23 @@ export function App() {
       <nav className="fixed right-0 bottom-0 left-0 z-30 flex border-t border-slate-800 bg-slate-950/95 backdrop-blur-md md:hidden">
         <button
           type="button"
-          onClick={() =>
-            setRoute({ type: 'folder', folderId: DEFAULT_CHORDS_FOLDER_ID })
-          }
+          onClick={() => setRoute({ type: 'all' })}
           className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-medium ${
-            route.type === 'folder' && route.folderId === DEFAULT_CHORDS_FOLDER_ID
-              ? 'text-amber-400'
-              : 'text-slate-400'
+            route.type === 'all' ? 'text-amber-400' : 'text-slate-400'
           }`}
         >
-          <Music2 className="h-4 w-4" />
-          Chords
+          <Library className="h-4 w-4" />
+          All Songs
         </button>
         <button
           type="button"
-          onClick={() =>
-            setRoute({ type: 'folder', folderId: DEFAULT_LYRICS_FOLDER_ID })
-          }
+          onClick={() => setMobileSidebarOpen(true)}
           className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-medium ${
-            route.type === 'folder' && route.folderId === DEFAULT_LYRICS_FOLDER_ID
-              ? 'text-sky-400'
-              : 'text-slate-400'
+            route.type === 'folder' ? 'text-sky-400' : 'text-slate-400'
           }`}
         >
-          <FileText className="h-4 w-4" />
-          Lyrics
+          <Layers className="h-4 w-4" />
+          Folders
         </button>
         <button
           type="button"
@@ -559,13 +546,14 @@ export function App() {
         </button>
         <button
           type="button"
-          onClick={() => setMobileSidebarOpen(true)}
-          className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-medium ${
-            route.type === 'all' ? 'text-amber-400' : 'text-slate-400'
-          }`}
+          onClick={() => {
+            setDroppedFiles([]);
+            setUploadOpen(true);
+          }}
+          className="flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-medium text-amber-300"
         >
-          <Layers className="h-4 w-4" />
-          Folders
+          <Upload className="h-4 w-4" />
+          Upload
         </button>
       </nav>
 

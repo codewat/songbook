@@ -15,11 +15,11 @@ rules_version = '2';
 // Fields (folder document):
 //   - id: string (required, immutable, == folderId, 1..100 chars, not '__*')
 //   - name: string (required, 1..120 chars)
-//   - isDefault: bool (required, immutable, true only for default folder IDs)
+//   - isDefault: bool (required, immutable, false for custom folders; bool for legacy default folder IDs)
 //   - sortOrder: number (required, -10000..1000000)
 //   - createdAt: string (required, immutable, ISO 8601 timestamp, 19..40 chars)
 //   - updatedAt: string (required, ISO 8601 timestamp, 19..40 chars)
-//   - deletedAt: string | null (required, must be null for default folders)
+//   - deletedAt: string | null (required, ISO 8601 timestamp when soft-deleted; allowed on legacy default IDs too)
 // Fields (__healthcheck__ document):
 //   - id: string (required, == '__healthcheck__')
 //   - ok: bool (required, == true)
@@ -29,10 +29,10 @@ rules_version = '2';
 // Document ID: UUID
 // Fields:
 //   - id: string (required, immutable, == songId, 1..100 chars, not '__*')
-//   - folderId: string (required, 1..100 chars, not '__*')
+//   - folderId: string (required, 1..100 chars, not '__*'; 'unfiled' when saved directly to All Songs without a custom folder)
 //   - title: string (required, 1..200 chars)
 //   - fileName: string (required, 1..300 chars)
-//   - fileType: string (required, 'pdf' | 'image')
+//   - fileType: string (required, 'pdf' | 'image' | 'ppt' | 'pptx')
 //   - mimeType: string (required, 1..120 chars)
 //   - fileSize: number (required, 0..1073741824)
 //   - storagePath: string (required, 1..500 chars, relative non-traversal path)
@@ -141,7 +141,7 @@ service cloud.firestore {
         !val.matches("(^|.*/)\\.\\.(/.*|$)");
     }
 
-    // Check if folderId is one of the two protected default folders (Chords / Lyrics)
+    // Check if folderId is one of the two legacy default folder IDs (Chords / Lyrics)
     function isDefaultFolderId(folderId) {
       return folderId in [
         '00000000-0000-4000-8000-000000000001',
@@ -182,7 +182,7 @@ service cloud.firestore {
         isNullableDateString(data.deletedAt) &&
         (
           isDefaultFolderId(folderId)
-            ? (data.isDefault == true && data.deletedAt == null)
+            ? (data.isDefault is bool)
             : (data.isDefault == false)
         );
     }
@@ -202,11 +202,12 @@ service cloud.firestore {
         hasRequiredFields(requiredFields) &&
         isValidEntityId(data.id) &&
         data.id == songId &&
+        // Allows custom folder UUIDs as well as 'unfiled' for songs saved directly to All Songs
         isValidEntityId(data.folderId) &&
         isNonEmptyString(data.title, 200) &&
         isNonEmptyString(data.fileName, 300) &&
         data.fileType is string &&
-        data.fileType in ['pdf', 'image'] &&
+        data.fileType in ['pdf', 'image', 'ppt', 'pptx'] &&
         isNonEmptyString(data.mimeType, 120) &&
         data.fileSize is number &&
         data.fileSize >= 0 &&
@@ -303,7 +304,7 @@ service cloud.firestore {
       );
 
       // Only the temporary connection-test doc can be hard-deleted;
-      // default folders cannot be hard-deleted or soft-deleted, and custom folders use deletedAt.
+      // all folders (including legacy default folder IDs) use soft-delete via deletedAt.
       allow delete: if folderId == '__healthcheck__';
     }
 

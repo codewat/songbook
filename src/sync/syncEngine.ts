@@ -19,6 +19,7 @@ import {
   uploadBytes,
 } from 'firebase/storage';
 import {
+  cleanupLegacyDefaultFolders,
   getActiveSongs,
   getAllCachedSongIds,
   getDb,
@@ -27,6 +28,7 @@ import {
   getOutboxOps,
   getSavedCloudConfig,
   getSongBlob,
+  isLegacyDefaultFolderId,
   markEntitySynced,
   markOutboxError,
   mergeRemoteData,
@@ -35,14 +37,13 @@ import {
   setMeta,
 } from '../db/localDb';
 import {
-  DEFAULT_CHORDS_FOLDER_ID,
-  DEFAULT_LYRICS_FOLDER_ID,
   type CloudConfig,
   type Folder,
   type OutboxOp,
   type Playlist,
   type PlaylistItem,
   type Song,
+  type SongFileType,
   type SyncStatusInfo,
 } from '../types/models';
 import { base64ToBytes, bytesToBase64 } from '../utils/format';
@@ -66,7 +67,7 @@ interface RemoteSongDoc {
   folderId: string;
   title: string;
   fileName: string;
-  fileType: 'pdf' | 'image';
+  fileType: SongFileType;
   mimeType: string;
   fileSize: number;
   storagePath: string;
@@ -261,7 +262,6 @@ class SyncManager {
   private dataListeners = new Set<DataChangedListener>();
   private unsubscribers: Unsubscribe[] = [];
   private realtimeDebounce: ReturnType<typeof setTimeout> | null = null;
-  private defaultsEnsuredForProject: string | null = null;
 
   subscribeStatus(listener: StatusListener): () => void {
     this.statusListeners.add(listener);
@@ -320,28 +320,6 @@ class SyncManager {
     }
   }
 
-  private async ensureRemoteDefaultFolders(bundle: FirebaseBundle): Promise<void> {
-    if (this.defaultsEnsuredForProject === bundle.config.projectId) return;
-
-    const db = await getDb();
-    const defaults = [
-      await db.get('folders', DEFAULT_CHORDS_FOLDER_ID),
-      await db.get('folders', DEFAULT_LYRICS_FOLDER_ID),
-    ].filter((f): f is Folder => Boolean(f));
-
-    if (defaults.length > 0) {
-      const remoteSnap = await getDocs(collection(bundle.firestore, 'folders'));
-      const existingIds = new Set(remoteSnap.docs.map((d) => d.id));
-      for (const f of defaults) {
-        if (!existingIds.has(f.id)) {
-          await setDoc(doc(bundle.firestore, 'folders', f.id), toRemoteFolder(f));
-        }
-      }
-    }
-
-    this.defaultsEnsuredForProject = bundle.config.projectId;
-  }
-
   private async processOutboxOp(bundle: FirebaseBundle, op: OutboxOp): Promise<void> {
     const db = await getDb();
     const now = new Date().toISOString();
@@ -352,7 +330,23 @@ class SyncManager {
         await removeOutboxOp(op.id);
         return;
       }
-      await setDoc(doc(bundle.firestore, 'folders', folder.id), toRemoteFolder(folder));
+      try {
+        await setDoc(doc(bundle.firestore, 'folders', folder.id), toRemoteFolder(folder));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (
+          folder.deletedAt !== null &&
+          isLegacyDefaultFolderId(folder.id) &&
+          /permission|insufficient/i.test(msg)
+        ) {
+          // Remote project still uses older firestore.rules locking legacy default folders.
+          // Keep them hidden locally and clear the outbox op so sync is not blocked.
+          await markEntitySynced('folder', folder.id, now);
+          await removeOutboxOp(op.id);
+          return;
+        }
+        throw err;
+      }
       await markEntitySynced('folder', folder.id, now);
       await removeOutboxOp(op.id);
       return;
@@ -467,8 +461,6 @@ class SyncManager {
     await this.emitStatus();
 
     try {
-      await this.ensureRemoteDefaultFolders(bundle);
-
       // 1. Push pending local edits/uploads to Firebase
       const ops = await getOutboxOps();
       for (const op of ops) {
@@ -502,6 +494,7 @@ class SyncManager {
         ),
       });
 
+      await cleanupLegacyDefaultFolders();
       this.notifyDataChanged();
 
       // 3. Cache any missing song files offline automatically

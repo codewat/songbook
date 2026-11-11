@@ -1,7 +1,7 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import {
-  DEFAULT_CHORDS_FOLDER_ID,
-  DEFAULT_LYRICS_FOLDER_ID,
+  LEGACY_DEFAULT_FOLDER_IDS,
+  UNFILED_FOLDER_ID,
   type CloudConfig,
   type Folder,
   type LocalBlobRecord,
@@ -15,6 +15,7 @@ import {
 import {
   cleanSongTitleFromFilename,
   createUuid,
+  defaultMimeForFileType,
   detectFileType,
   sanitizeStorageFileName,
 } from '../utils/format';
@@ -101,37 +102,51 @@ export async function resetDbConnectionForTests(): Promise<void> {
   }
 }
 
-export async function ensureDefaultFolders(): Promise<void> {
+const LEGACY_DEFAULT_FOLDER_SET = new Set<string>(LEGACY_DEFAULT_FOLDER_IDS);
+
+export function isLegacyDefaultFolderId(folderId: string): boolean {
+  return LEGACY_DEFAULT_FOLDER_SET.has(folderId);
+}
+
+/**
+ * Migrate any existing songs out of the removed legacy default folders
+ * (`1. Chords` and `2. Lyrics`) into `All Songs` (`UNFILED_FOLDER_ID`)
+ * and remove/soft-delete those two legacy folders without losing files.
+ */
+export async function cleanupLegacyDefaultFolders(): Promise<void> {
   const db = await getDb();
   const now = new Date().toISOString();
-  const tx = db.transaction('folders', 'readwrite');
-  const existingChords = await tx.store.get(DEFAULT_CHORDS_FOLDER_ID);
-  if (!existingChords) {
-    await tx.store.put({
-      id: DEFAULT_CHORDS_FOLDER_ID,
-      name: '1. Chords',
-      isDefault: true,
-      sortOrder: 1,
-      createdAt: now,
-      updatedAt: now,
-      deletedAt: null,
-      syncedAt: null,
-    });
+
+  for (const legacyId of LEGACY_DEFAULT_FOLDER_IDS) {
+    const legacySongs = await db.getAllFromIndex('songs', 'by-folder', legacyId);
+    for (const song of legacySongs) {
+      if (!song.deletedAt) {
+        const migrated: Song = {
+          ...song,
+          folderId: UNFILED_FOLDER_ID,
+          updatedAt: now,
+        };
+        await db.put('songs', migrated);
+        await enqueueOutbox('song', song.id, 'upsert');
+      }
+    }
+
+    const legacyFolder = await db.get('folders', legacyId);
+    if (!legacyFolder) continue;
+
+    if (!legacyFolder.syncedAt) {
+      const existingOp = await db.getFromIndex('outbox', 'by-entity', ['folder', legacyId]);
+      if (existingOp) await db.delete('outbox', existingOp.id);
+      await db.delete('folders', legacyId);
+    } else if (!legacyFolder.deletedAt) {
+      await db.put('folders', {
+        ...legacyFolder,
+        deletedAt: now,
+        updatedAt: now,
+      });
+      await enqueueOutbox('folder', legacyId, 'delete');
+    }
   }
-  const existingLyrics = await tx.store.get(DEFAULT_LYRICS_FOLDER_ID);
-  if (!existingLyrics) {
-    await tx.store.put({
-      id: DEFAULT_LYRICS_FOLDER_ID,
-      name: '2. Lyrics',
-      isDefault: true,
-      sortOrder: 2,
-      createdAt: now,
-      updatedAt: now,
-      deletedAt: null,
-      syncedAt: null,
-    });
-  }
-  await tx.done;
 }
 
 async function enqueueOutbox(
@@ -167,11 +182,11 @@ async function enqueueOutbox(
 // ---------------- FOLDERS ----------------
 
 export async function getActiveFolders(): Promise<Folder[]> {
-  await ensureDefaultFolders();
+  await cleanupLegacyDefaultFolders();
   const db = await getDb();
   const all = await db.getAll('folders');
   return all
-    .filter((f) => !f.deletedAt)
+    .filter((f) => !f.deletedAt && !isLegacyDefaultFolderId(f.id))
     .sort((a, b) => {
       if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
       return a.name.localeCompare(b.name);
@@ -218,9 +233,6 @@ export async function deleteFolder(folderId: string): Promise<void> {
   const db = await getDb();
   const folder = await db.get('folders', folderId);
   if (!folder) return;
-  if (folder.isDefault) {
-    throw new Error('Default folders (Chords and Lyrics) cannot be deleted.');
-  }
 
   const folderSongs = await db.getAllFromIndex('songs', 'by-folder', folderId);
   for (const song of folderSongs) {
@@ -273,26 +285,35 @@ export interface AddSongInput {
 export async function addSongFile(input: AddSongInput): Promise<Song> {
   const fileType = detectFileType(input.file);
   if (!fileType) {
-    throw new Error(`Unsupported file "${input.file.name}". Please upload PDF or image files.`);
+    throw new Error(
+      `Unsupported file "${input.file.name}". Please upload PDF, Image, or PowerPoint (.ppt / .pptx) files.`
+    );
   }
 
   const db = await getDb();
   const songId = createUuid();
   const now = new Date().toISOString();
-  const safeName = sanitizeStorageFileName(input.file.name || `song.${fileType === 'pdf' ? 'pdf' : 'png'}`);
-  const mimeType =
-    input.file.type ||
-    (fileType === 'pdf' ? 'application/pdf' : 'image/png');
+  const targetFolderId = (input.folderId || '').trim() || UNFILED_FOLDER_ID;
+  const fallbackExt =
+    fileType === 'pdf'
+      ? 'pdf'
+      : fileType === 'pptx'
+        ? 'pptx'
+        : fileType === 'ppt'
+          ? 'ppt'
+          : 'png';
+  const safeName = sanitizeStorageFileName(input.file.name || `song.${fallbackExt}`);
+  const mimeType = input.file.type || defaultMimeForFileType(fileType);
 
   const song: Song = {
     id: songId,
-    folderId: input.folderId,
+    folderId: targetFolderId,
     title: (input.title || '').trim() || cleanSongTitleFromFilename(input.file.name),
     fileName: input.file.name,
     fileType,
     mimeType,
     fileSize: input.file.size,
-    storagePath: `${input.folderId}/${songId}_${safeName}`,
+    storagePath: `${targetFolderId}/${songId}_${safeName}`,
     songKey: input.songKey?.trim() || null,
     tempo: input.tempo?.trim() || null,
     notes: input.notes?.trim() || null,

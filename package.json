@@ -10,8 +10,10 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "cfb": "^1.2.2",
     "firebase": "^11.4.0",
     "idb": "^8.0.2",
+    "jszip": "^3.10.2",
     "lucide-react": "^0.475.0",
     "pdfjs-dist": "^4.10.38",
     "react": "^19.0.0",

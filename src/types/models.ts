@@ -1,7 +1,11 @@
-export const DEFAULT_CHORDS_FOLDER_ID = '00000000-0000-4000-8000-000000000001';
-export const DEFAULT_LYRICS_FOLDER_ID = '00000000-0000-4000-8000-000000000002';
+export const UNFILED_FOLDER_ID = 'unfiled';
 
-export type SongFileType = 'pdf' | 'image';
+export const LEGACY_DEFAULT_FOLDER_IDS = [
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+] as const;
+
+export type SongFileType = 'pdf' | 'image' | 'ppt' | 'pptx';
 export type FirebaseFileStorageMode = 'firestore' | 'storage';
 
 export interface Folder {

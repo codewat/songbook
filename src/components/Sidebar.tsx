@@ -1,11 +1,9 @@
 import {
-  FileText,
   Folder,
   FolderPlus,
   HardDrive,
   Library,
   ListMusic,
-  Music2,
   Pencil,
   Plus,
   RefreshCw,
@@ -125,37 +123,40 @@ export function Sidebar({
             </button>
           </div>
 
-          <div className="space-y-1">
-            {folders.map((folder, index) => {
-              const active = route.type === 'folder' && route.folderId === folder.id;
-              const count = songCountByFolder.get(folder.id) || 0;
-              return (
-                <div
-                  key={folder.id}
-                  className={`group flex items-center justify-between rounded-xl px-2.5 py-2 transition ${
-                    active
-                      ? 'bg-amber-500/15 text-amber-300'
-                      : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => selectAndClose({ type: 'folder', folderId: folder.id })}
-                    className="flex min-w-0 flex-1 items-center gap-2.5 text-left text-sm font-medium"
+          {folders.length === 0 ? (
+            <button
+              type="button"
+              onClick={onCreateFolder}
+              className="flex w-full items-center gap-2 rounded-xl border border-dashed border-slate-800 px-3 py-2.5 text-xs text-slate-400 hover:border-amber-500/40 hover:text-amber-300"
+            >
+              <FolderPlus className="h-3.5 w-3.5" />
+              Add Custom Folder
+            </button>
+          ) : (
+            <div className="space-y-1">
+              {folders.map((folder) => {
+                const active = route.type === 'folder' && route.folderId === folder.id;
+                const count = songCountByFolder.get(folder.id) || 0;
+                return (
+                  <div
+                    key={folder.id}
+                    className={`group flex items-center justify-between rounded-xl px-2.5 py-2 transition ${
+                      active
+                        ? 'bg-amber-500/15 text-amber-300'
+                        : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
+                    }`}
                   >
-                    {folder.isDefault && index === 0 ? (
-                      <Music2 className="h-4 w-4 shrink-0 text-amber-400" />
-                    ) : folder.isDefault && index === 1 ? (
-                      <FileText className="h-4 w-4 shrink-0 text-sky-400" />
-                    ) : (
-                      <Folder className="h-4 w-4 shrink-0 text-slate-400" />
-                    )}
-                    <span className="truncate">{folder.name}</span>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => selectAndClose({ type: 'folder', folderId: folder.id })}
+                      className="flex min-w-0 flex-1 items-center gap-2.5 text-left text-sm font-medium"
+                    >
+                      <Folder className="h-4 w-4 shrink-0 text-amber-400/80" />
+                      <span className="truncate">{folder.name}</span>
+                    </button>
 
-                  <div className="flex items-center gap-1">
-                    {!folder.isDefault && (
-                      <div className="hidden items-center gap-0.5 group-hover:flex">
+                    <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-0.5 md:hidden md:group-hover:flex md:group-focus-within:flex">
                         <button
                           type="button"
                           title="Rename Folder"
@@ -173,15 +174,15 @@ export function Sidebar({
                           <Trash2 className="h-3 w-3" />
                         </button>
                       </div>
-                    )}
-                    <span className="rounded-md bg-slate-800/90 px-2 py-0.5 text-xs text-slate-400">
-                      {count}
-                    </span>
+                      <span className="rounded-md bg-slate-800/90 px-2 py-0.5 text-xs text-slate-400">
+                        {count}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Playlists Section */}

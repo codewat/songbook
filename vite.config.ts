@@ -13,7 +13,8 @@ export default defineConfig({
       manifest: {
         name: 'WorshipDeck — Church Songbook',
         short_name: 'WorshipDeck',
-        description: 'Offline-first Chords, Lyrics & Worship Lineup Songbook for Church Teams',
+        description:
+          'Offline-first Chords, Lyrics, PowerPoint Slides & Worship Lineup Songbook for Church Teams',
         theme_color: '#0f172a',
         background_color: '#0f172a',
         display: 'standalone',

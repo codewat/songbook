@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { FileText, Image as ImageIcon, Upload, X } from 'lucide-react';
-import type { Folder, Playlist } from '../types/models';
-import { cleanSongTitleFromFilename, detectFileType, formatBytes } from '../utils/format';
+import { FileText, Image as ImageIcon, Presentation, Upload, X } from 'lucide-react';
+import { UNFILED_FOLDER_ID, type Folder, type Playlist } from '../types/models';
+import {
+  cleanSongTitleFromFilename,
+  detectFileType,
+  formatBytes,
+  isPowerPointType,
+} from '../utils/format';
 
 interface UploadModalProps {
   open: boolean;
@@ -49,7 +54,7 @@ export function UploadModal({
   useEffect(() => {
     if (!open) return;
     setError(null);
-    setFolderId(defaultFolderId || folders[0]?.id || '');
+    setFolderId(defaultFolderId || UNFILED_FOLDER_ID);
     setPlaylistId(defaultPlaylistId || '');
     setFiles(initialFiles);
     if (initialFiles.length === 1) {
@@ -60,7 +65,7 @@ export function UploadModal({
     setSongKey('');
     setTempo('');
     setNotes('');
-  }, [open, defaultFolderId, defaultPlaylistId, initialFiles, folders]);
+  }, [open, defaultFolderId, defaultPlaylistId, initialFiles]);
 
   if (!open) return null;
 
@@ -76,7 +81,9 @@ export function UploadModal({
       }
     }
     if (invalid.length > 0) {
-      setError(`Unsupported file(s): ${invalid.join(', ')}. Only PDF and image files are allowed.`);
+      setError(
+        `Unsupported file(s): ${invalid.join(', ')}. Supported formats: PDF, Image, or PowerPoint (.ppt, .pptx).`
+      );
     }
     if (valid.length > 0) {
       setFiles((prev) => {
@@ -102,19 +109,16 @@ export function UploadModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (files.length === 0) {
-      setError('Please select at least one PDF or image file.');
+      setError('Please select at least one PDF, image, or PowerPoint (.ppt / .pptx) file.');
       return;
     }
-    if (!folderId) {
-      setError('Please choose a destination folder.');
-      return;
-    }
+    const targetFolderId = folderId || UNFILED_FOLDER_ID;
     setUploading(true);
     setError(null);
     try {
       await onUpload({
         files,
-        folderId,
+        folderId: targetFolderId,
         playlistId: playlistId || null,
         singleMeta:
           files.length === 1
@@ -141,7 +145,7 @@ export function UploadModal({
               <Upload className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-base font-semibold text-white">Upload Chords / Lyrics</h2>
+              <h2 className="text-base font-semibold text-white">Upload Songs &amp; Slides</h2>
               <p className="text-xs text-slate-400">
                 Saves offline on this device immediately &amp; syncs when online
               </p>
@@ -181,7 +185,7 @@ export function UploadModal({
             <input
               ref={inputRef}
               type="file"
-              accept="application/pdf,image/*"
+              accept="application/pdf,image/*,.ppt,.pptx,.pps,.ppsx,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
               multiple
               className="hidden"
               onChange={(e) => {
@@ -193,10 +197,10 @@ export function UploadModal({
             />
             <Upload className="mx-auto h-8 w-8 text-amber-400" />
             <p className="mt-2 text-sm font-medium text-white">
-              Tap to choose PDF or Image files
+              Tap to choose PDF, Image, or PowerPoint files
             </p>
             <p className="mt-1 text-xs text-slate-400">
-              Supports multiple files at once (.pdf, .jpg, .png, .webp)
+              Supports multiple files at once (.pdf, .jpg, .png, .ppt, .pptx)
             </p>
           </div>
 
@@ -217,6 +221,8 @@ export function UploadModal({
                       <div className="flex min-w-0 items-center gap-2.5">
                         {kind === 'pdf' ? (
                           <FileText className="h-4 w-4 shrink-0 text-rose-400" />
+                        ) : kind && isPowerPointType(kind) ? (
+                          <Presentation className="h-4 w-4 shrink-0 text-indigo-400" />
                         ) : (
                           <ImageIcon className="h-4 w-4 shrink-0 text-sky-400" />
                         )}
@@ -254,6 +260,7 @@ export function UploadModal({
                 onChange={(e) => setFolderId(e.target.value)}
                 className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-500"
               >
+                <option value={UNFILED_FOLDER_ID}>All Songs (No Folder)</option>
                 {folders.map((f) => (
                   <option key={f.id} value={f.id}>
                     {f.name}

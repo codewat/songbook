@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { FolderOpen, Music, Search, Upload } from 'lucide-react';
-import type { Folder, Song } from '../types/models';
+import { UNFILED_FOLDER_ID, type Folder, type Song } from '../types/models';
+import { isPowerPointType } from '../utils/format';
 import { SongCard } from './SongCard';
 
 interface FolderViewProps {
@@ -29,7 +30,7 @@ export function FolderView({
   onDeleteSong,
 }: FolderViewProps) {
   const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState<'all' | 'pdf' | 'image'>('all');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'pdf' | 'image' | 'slides'>('all');
   const [dragActive, setDragActive] = useState(false);
 
   const folderNameMap = useMemo(
@@ -41,10 +42,14 @@ export function FolderView({
     const q = search.trim().toLowerCase();
     return songs.filter((s) => {
       if (folder && s.folderId !== folder.id) return false;
-      if (typeFilter !== 'all' && s.fileType !== typeFilter) return false;
+      if (typeFilter === 'slides' && !isPowerPointType(s.fileType)) return false;
+      if ((typeFilter === 'pdf' || typeFilter === 'image') && s.fileType !== typeFilter) {
+        return false;
+      }
       if (!q) return true;
       return (
         s.title.toLowerCase().includes(q) ||
+        s.fileName.toLowerCase().includes(q) ||
         (s.songKey && s.songKey.toLowerCase().includes(q)) ||
         (s.notes && s.notes.toLowerCase().includes(q))
       );
@@ -86,11 +91,9 @@ export function FolderView({
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                {folder?.isDefault
-                  ? 'Default church folder — works offline & syncs with team'
-                  : folder
-                    ? 'Custom folder — drag & drop PDFs or images anytime'
-                    : 'All chords, lyrics & song sheets stored in this app'}
+                {folder
+                  ? 'Custom folder — drag & drop PDFs, images, or PowerPoint (.ppt / .pptx)'
+                  : 'All chords, lyrics & PowerPoint slides stored offline in this app'}
               </p>
             </div>
           </div>
@@ -101,7 +104,7 @@ export function FolderView({
             className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 shadow-lg shadow-amber-500/10 transition hover:bg-amber-400"
           >
             <Upload className="h-4 w-4" />
-            <span>Upload PDF / Image</span>
+            <span>Upload File</span>
           </button>
         </div>
 
@@ -119,18 +122,24 @@ export function FolderView({
           </div>
 
           <div className="flex rounded-xl border border-slate-800 bg-slate-900 p-1 text-xs font-medium">
-            {(['all', 'pdf', 'image'] as const).map((t) => (
+            {(['all', 'pdf', 'image', 'slides'] as const).map((t) => (
               <button
                 key={t}
                 type="button"
                 onClick={() => setTypeFilter(t)}
-                className={`rounded-lg px-3 py-1.5 capitalize transition ${
+                className={`rounded-lg px-3 py-1.5 transition ${
                   typeFilter === t
                     ? 'bg-slate-800 text-amber-300'
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
-                {t === 'all' ? 'All' : t === 'pdf' ? 'PDFs' : 'Images'}
+                {t === 'all'
+                  ? 'All'
+                  : t === 'pdf'
+                    ? 'PDFs'
+                    : t === 'image'
+                      ? 'Images'
+                      : 'Slides / PPT'}
               </button>
             ))}
           </div>
@@ -143,7 +152,7 @@ export function FolderView({
           <div className="pointer-events-none absolute inset-4 z-20 flex flex-col items-center justify-center rounded-3xl border-2 border-dashed border-amber-400 bg-slate-950/90 backdrop-blur-sm">
             <Upload className="h-12 w-12 text-amber-400" />
             <p className="mt-3 text-base font-semibold text-white">
-              Drop PDF or Image files to save offline
+              Drop PDF, Image, or PowerPoint files to save offline
             </p>
           </div>
         )}
@@ -156,12 +165,12 @@ export function FolderView({
             <h2 className="mt-4 text-base font-semibold text-white">
               {search || typeFilter !== 'all'
                 ? 'No matching files found'
-                : `No files in ${folder ? folder.name : 'library'} yet`}
+                : `No files in ${folder ? folder.name : 'All Songs'} yet`}
             </h2>
             <p className="mt-1.5 text-sm text-slate-400">
               {search || typeFilter !== 'all'
                 ? 'Try clearing your search or switching file filter.'
-                : 'Upload PDF chord charts or song images. They stay saved inside this app even with zero internet during church!'}
+                : 'Upload PDF chord charts, song images, or PowerPoint (.ppt / .pptx) slides. Everything stays saved offline inside this app!'}
             </p>
             {!search && typeFilter === 'all' && (
               <button
@@ -180,7 +189,11 @@ export function FolderView({
               <SongCard
                 key={song.id}
                 song={song}
-                folderName={!folder ? folderNameMap.get(song.folderId) : undefined}
+                folderName={
+                  !folder && song.folderId !== UNFILED_FOLDER_ID
+                    ? folderNameMap.get(song.folderId)
+                    : undefined
+                }
                 isCachedOffline={cachedSongIds.has(song.id)}
                 onOpen={(s) => onOpenSong(s, filteredSongs)}
                 onAddToPlaylist={onAddToPlaylist}

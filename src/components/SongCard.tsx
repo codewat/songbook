@@ -6,10 +6,11 @@ import {
   Image as ImageIcon,
   ListPlus,
   Pencil,
+  Presentation,
   Trash2,
 } from 'lucide-react';
 import type { Song } from '../types/models';
-import { formatBytes } from '../utils/format';
+import { formatBytes, isPowerPointType } from '../utils/format';
 
 interface SongCardProps {
   song: Song;
@@ -31,6 +32,7 @@ export function SongCard({
   onDelete,
 }: SongCardProps) {
   const isPdf = song.fileType === 'pdf';
+  const isPpt = isPowerPointType(song.fileType);
   const pendingUpload = song.syncedAt === null;
 
   return (
@@ -44,11 +46,15 @@ export function SongCard({
           className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${
             isPdf
               ? 'bg-rose-500/15 text-rose-400'
-              : 'bg-sky-500/15 text-sky-400'
+              : isPpt
+                ? 'bg-indigo-500/15 text-indigo-400'
+                : 'bg-sky-500/15 text-sky-400'
           }`}
         >
           {isPdf ? (
             <FileText className="h-5 w-5" />
+          ) : isPpt ? (
+            <Presentation className="h-5 w-5" />
           ) : (
             <ImageIcon className="h-5 w-5" />
           )}
@@ -63,10 +69,12 @@ export function SongCard({
               className={`rounded-md px-1.5 py-0.5 font-semibold uppercase ${
                 isPdf
                   ? 'bg-rose-500/15 text-rose-300'
-                  : 'bg-sky-500/15 text-sky-300'
+                  : isPpt
+                    ? 'bg-indigo-500/15 text-indigo-300'
+                    : 'bg-sky-500/15 text-sky-300'
               }`}
             >
-              {isPdf ? 'PDF' : 'IMG'}
+              {isPdf ? 'PDF' : isPpt ? song.fileType.toUpperCase() : 'IMG'}
             </span>
             {song.songKey && (
               <span className="rounded-md bg-amber-500/15 px-1.5 py-0.5 font-medium text-amber-300">

@@ -1,13 +1,15 @@
 import 'fake-indexeddb/auto';
+import * as CFB from 'cfb';
+import JSZip from 'jszip';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   addSongFile,
   addSongsToPlaylist,
+  cleanupLegacyDefaultFolders,
   createFolder,
   createPlaylist,
   deleteFolder,
   deleteSong,
-  ensureDefaultFolders,
   getActiveFolders,
   getActivePlaylists,
   getActiveSongs,
@@ -23,14 +25,18 @@ import {
   updateSongMeta,
 } from '../src/db/localDb';
 import {
-  DEFAULT_CHORDS_FOLDER_ID,
-  DEFAULT_LYRICS_FOLDER_ID,
+  LEGACY_DEFAULT_FOLDER_IDS,
+  UNFILED_FOLDER_ID,
 } from '../src/types/models';
 import {
+  PPTX_MIME,
+  PPT_MIME,
   base64ToBytes,
   bytesToBase64,
+  detectFileType,
   parseFirebaseConfigSnippet,
 } from '../src/utils/format';
+import { parsePresentationBlob } from '../src/utils/powerpoint';
 
 async function clearAllStores() {
   await resetDbConnectionForTests();
@@ -42,77 +48,291 @@ async function clearAllStores() {
   });
 }
 
-describe('WorshipDeck Offline Database & Outbox Sync Logic', () => {
+function makePptRecord(recVer: number, recInstance: number, recType: number, payload: Uint8Array): Uint8Array {
+  const out = new Uint8Array(8 + payload.length);
+  const view = new DataView(out.buffer);
+  view.setUint16(0, (recVer & 0x0f) | ((recInstance & 0x0fff) << 4), true);
+  view.setUint16(2, recType, true);
+  view.setUint32(4, payload.length, true);
+  out.set(payload, 8);
+  return out;
+}
+
+function concatBytes(chunks: Uint8Array[]): Uint8Array {
+  const total = chunks.reduce((acc, c) => acc + c.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    out.set(c, offset);
+    offset += c.length;
+  }
+  return out;
+}
+
+function encodeUtf16Le(text: string): Uint8Array {
+  const out = new Uint8Array(text.length * 2);
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    out[i * 2] = code & 0xff;
+    out[i * 2 + 1] = code >> 8;
+  }
+  return out;
+}
+
+function encodeAscii(text: string): Uint8Array {
+  const out = new Uint8Array(text.length);
+  for (let i = 0; i < text.length; i++) {
+    out[i] = text.charCodeAt(i) & 0xff;
+  }
+  return out;
+}
+
+describe('WorshipDeck Offline Database, PowerPoint Support & Outbox Sync', () => {
   beforeEach(async () => {
     await clearAllStores();
   });
 
-  it('creates default 1. Chords and 2. Lyrics folders with fixed IDs and protects them from deletion', async () => {
-    await ensureDefaultFolders();
+  it('starts without auto-created 1. Chords or 2. Lyrics folders and allows deleting custom folders', async () => {
     const folders = await getActiveFolders();
-    expect(folders).toHaveLength(2);
-    expect(folders[0].id).toBe(DEFAULT_CHORDS_FOLDER_ID);
-    expect(folders[0].name).toBe('1. Chords');
-    expect(folders[1].id).toBe(DEFAULT_LYRICS_FOLDER_ID);
-    expect(folders[1].name).toBe('2. Lyrics');
+    expect(folders).toEqual([]);
 
-    await expect(deleteFolder(DEFAULT_CHORDS_FOLDER_ID)).rejects.toThrow(
-      /cannot be deleted/i
-    );
+    const custom = await createFolder('Sunday Praise');
+    expect(custom.isDefault).toBe(false);
+    expect(await getActiveFolders()).toHaveLength(1);
+
+    await deleteFolder(custom.id);
+    expect(await getActiveFolders()).toEqual([]);
   });
 
-  it('stores PDF and Image bytes offline inside IndexedDB and queues outbox ops', async () => {
-    await ensureDefaultFolders();
+  it('migrates songs from legacy 1. Chords and 2. Lyrics folders into All Songs without data loss', async () => {
+    const db = await getDb();
+    const oldTime = '2026-10-01T00:00:00.000Z';
 
-    const pdfBytes = new Uint8Array([37, 80, 68, 70, 45, 49, 46, 52]);
-    const pdfFile = new File([pdfBytes], 'Goodness_Of_God.pdf', {
+    await db.put('folders', {
+      id: LEGACY_DEFAULT_FOLDER_IDS[0],
+      name: '1. Chords',
+      isDefault: true,
+      sortOrder: 1,
+      createdAt: oldTime,
+      updatedAt: oldTime,
+      deletedAt: null,
+      syncedAt: oldTime,
+    });
+    await db.put('folders', {
+      id: LEGACY_DEFAULT_FOLDER_IDS[1],
+      name: '2. Lyrics',
+      isDefault: true,
+      sortOrder: 2,
+      createdAt: oldTime,
+      updatedAt: oldTime,
+      deletedAt: null,
+      syncedAt: null,
+    });
+
+    const migratedSong = await addSongFile({
+      file: new File([new Uint8Array([37, 80, 68, 70])], 'Amazing_Grace.pdf', {
+        type: 'application/pdf',
+      }),
+      folderId: LEGACY_DEFAULT_FOLDER_IDS[0],
+    });
+
+    await cleanupLegacyDefaultFolders();
+
+    const activeFolders = await getActiveFolders();
+    expect(activeFolders).toEqual([]);
+
+    const activeSongs = await getActiveSongs();
+    expect(activeSongs).toHaveLength(1);
+    expect(activeSongs[0].id).toBe(migratedSong.id);
+    expect(activeSongs[0].folderId).toBe(UNFILED_FOLDER_ID);
+
+    // Synced legacy folder is soft-deleted for propagation; unsynced legacy folder is removed directly
+    const syncedLegacy = await db.get('folders', LEGACY_DEFAULT_FOLDER_IDS[0]);
+    expect(syncedLegacy?.deletedAt).not.toBeNull();
+    expect(await db.get('folders', LEGACY_DEFAULT_FOLDER_IDS[1])).toBeUndefined();
+  });
+
+  it('stores PDF, Image, PPTX, and PPT files offline inside IndexedDB and queues outbox ops', async () => {
+    const pdfFile = new File([new Uint8Array([37, 80, 68, 70, 45, 49])], 'Goodness_Of_God.pdf', {
       type: 'application/pdf',
     });
-
-    const imgBytes = new Uint8Array([137, 80, 78, 71]);
-    const imgFile = new File([imgBytes], 'Way_Maker_Lyrics.png', {
+    const imgFile = new File([new Uint8Array([137, 80, 78, 71])], 'Way_Maker_Lyrics.png', {
       type: 'image/png',
     });
+    const pptxFile = new File([new Uint8Array([80, 75, 3, 4, 1, 2])], 'How_Great_Is_Our_God.pptx', {
+      type: '',
+    });
+    const pptFile = new File([new Uint8Array([0xd0, 0xcf, 0x11, 0xe0])], '10000_Reasons.ppt', {
+      type: '',
+    });
+
+    expect(detectFileType(pptxFile)).toBe('pptx');
+    expect(detectFileType(pptFile)).toBe('ppt');
 
     const chordSong = await addSongFile({
       file: pdfFile,
-      folderId: DEFAULT_CHORDS_FOLDER_ID,
+      folderId: UNFILED_FOLDER_ID,
       songKey: 'G',
     });
     const lyricSong = await addSongFile({
       file: imgFile,
-      folderId: DEFAULT_LYRICS_FOLDER_ID,
+      folderId: UNFILED_FOLDER_ID,
+    });
+    const pptxSong = await addSongFile({
+      file: pptxFile,
+      folderId: UNFILED_FOLDER_ID,
+    });
+    const pptSong = await addSongFile({
+      file: pptFile,
+      folderId: UNFILED_FOLDER_ID,
     });
 
     expect(chordSong.fileType).toBe('pdf');
     expect(chordSong.title).toBe('Goodness Of God');
     expect(lyricSong.fileType).toBe('image');
+    expect(pptxSong.fileType).toBe('pptx');
+    expect(pptxSong.mimeType).toBe(PPTX_MIME);
+    expect(pptSong.fileType).toBe('ppt');
+    expect(pptSong.mimeType).toBe(PPT_MIME);
 
-    const chordBlob = await getSongBlob(chordSong.id);
-    const lyricBlob = await getSongBlob(lyricSong.id);
-    expect(chordBlob).toBeDefined();
-    expect(chordBlob?.size).toBe(8);
-    expect(lyricBlob?.size).toBe(4);
+    expect((await getSongBlob(pptxSong.id))?.size).toBe(6);
+    expect((await getSongBlob(pptSong.id))?.size).toBe(4);
 
     const stats = await getOfflineStorageStats();
-    expect(stats.cachedFilesCount).toBe(2);
-    expect(stats.totalBytes).toBe(12);
+    expect(stats.cachedFilesCount).toBe(4);
+    expect(stats.totalBytes).toBe(20);
 
     const outbox = await getOutboxOps();
-    expect(outbox).toHaveLength(2);
+    expect(outbox).toHaveLength(4);
     expect(outbox.every((op) => op.entity === 'song' && op.action === 'upsert')).toBe(
       true
     );
   });
 
+  it('parses real .pptx archives offline including slide order, styling, images, and speaker notes', async () => {
+    const zip = new JSZip();
+    zip.file(
+      'ppt/presentation.xml',
+      `<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+        <p:sldIdLst>
+          <p:sldId id="256" r:id="rId2"/>
+          <p:sldId id="257" r:id="rId1"/>
+        </p:sldIdLst>
+        <p:sldSz cx="12192000" cy="6858000"/>
+      </p:presentation>`
+    );
+    zip.file(
+      'ppt/_rels/presentation.xml.rels',
+      `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide2.xml"/>
+        <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/>
+      </Relationships>`
+    );
+    zip.file(
+      'ppt/slides/slide1.xml',
+      `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+        <p:cSld>
+          <p:bg><p:bgPr><a:solidFill><a:srgbClr val="1E293B"/></a:solidFill></p:bgPr></p:bg>
+          <p:spTree>
+            <p:sp>
+              <p:spPr><a:xfrm><a:off x="914400" y="914400"/><a:ext cx="9144000" cy="1828800"/></a:xfrm></p:spPr>
+              <p:txBody>
+                <a:p><a:pPr algn="ctr"/><a:r><a:rPr sz="4000" b="1"><a:solidFill><a:srgbClr val="FDE68A"/></a:solidFill></a:rPr><a:t>Goodness of God</a:t></a:r></a:p>
+                <a:p><a:pPr algn="ctr"/><a:r><a:rPr sz="2400"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:rPr><a:t>I love You Lord</a:t></a:r></a:p>
+              </p:txBody>
+            </p:sp>
+            <p:pic>
+              <p:blipFill><a:blip r:embed="rIdImg"/></p:blipFill>
+              <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm></p:spPr>
+            </p:pic>
+          </p:spTree>
+        </p:cSld>
+      </p:sld>`
+    );
+    zip.file(
+      'ppt/slides/_rels/slide1.xml.rels',
+      `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rIdImg" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/logo.png"/>
+        <Relationship Id="rIdNotes" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide" Target="../notesSlides/notesSlide1.xml"/>
+      </Relationships>`
+    );
+    zip.file('ppt/media/logo.png', new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]));
+    zip.file(
+      'ppt/notesSlides/notesSlide1.xml',
+      `<p:notes xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+        <p:cSld><p:spTree><p:sp><p:nvSpPr><p:nvPr><p:ph type="body"/></p:nvPr></p:nvSpPr>
+          <p:txBody><a:p><a:r><a:t>Repeat chorus 2x gently</a:t></a:r></a:p></p:txBody>
+        </p:sp></p:spTree></p:cSld>
+      </p:notes>`
+    );
+    zip.file(
+      'ppt/slides/slide2.xml',
+      `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+        <p:cSld>
+          <p:spTree>
+            <p:sp>
+              <p:spPr><a:xfrm><a:off x="914400" y="914400"/><a:ext cx="9144000" cy="1828800"/></a:xfrm></p:spPr>
+              <p:txBody>
+                <a:p><a:r><a:t>All my life You have been faithful</a:t></a:r></a:p>
+              </p:txBody>
+            </p:sp>
+          </p:spTree>
+        </p:cSld>
+      </p:sld>`
+    );
+
+    const pptxArrayBuffer = await zip.generateAsync({ type: 'arraybuffer' });
+    const parsed = await parsePresentationBlob(
+      new Blob([pptxArrayBuffer], { type: PPTX_MIME }),
+      'pptx'
+    );
+
+    expect(parsed.format).toBe('pptx');
+    expect(parsed.slideWidthPx).toBe(1280);
+    expect(parsed.slideHeightPx).toBe(720);
+    expect(parsed.slides).toHaveLength(2);
+
+    expect(parsed.slides[0].backgroundColor).toBe('#1e293b');
+    expect(parsed.slides[0].plainTextLines).toEqual(['Goodness of God', 'I love You Lord']);
+    expect(parsed.slides[0].elements.some((el) => el.kind === 'image')).toBe(true);
+    expect(parsed.slides[0].notesText).toBe('Repeat chorus 2x gently');
+
+    expect(parsed.slides[1].plainTextLines).toEqual(['All my life You have been faithful']);
+  });
+
+  it('parses legacy binary .ppt OLE2 streams offline cleanly', async () => {
+    const slide1List = concatBytes([
+      makePptRecord(0, 0, 0x03f3, new Uint8Array(20)), // SlidePersistAtom
+      makePptRecord(0, 0, 0x0fa0, encodeUtf16Le('Holy Forever\rA thousand generations')),
+      makePptRecord(0, 0, 0x03f3, new Uint8Array(20)), // SlidePersistAtom 2
+      makePptRecord(0, 0, 0x0fa8, encodeAscii('Your name is the highest')),
+    ]);
+    const slideListWithText = makePptRecord(0x0f, 0, 0x0ff0, slide1List);
+    const documentContainer = makePptRecord(0x0f, 0, 0x03e8, slideListWithText);
+
+    const cfb = CFB.utils.cfb_new();
+    CFB.utils.cfb_add(cfb, 'PowerPoint Document', documentContainer);
+    const pptBytes = CFB.write(cfb, { type: 'array' }) as Uint8Array;
+
+    const parsed = await parsePresentationBlob(
+      new Blob([pptBytes as unknown as BlobPart], { type: PPT_MIME }),
+      'ppt'
+    );
+
+    expect(parsed.format).toBe('ppt');
+    expect(parsed.slides).toHaveLength(2);
+    expect(parsed.slides[0].plainTextLines).toEqual(['Holy Forever', 'A thousand generations']);
+    expect(parsed.slides[1].plainTextLines).toEqual(['Your name is the highest']);
+    expect(parsed.warnings.length).toBeGreaterThan(0);
+  });
+
   it('deduplicates outbox updates and cancels unsynced uploads if deleted offline', async () => {
-    await ensureDefaultFolders();
     const file = new File([new Uint8Array([1, 2, 3])], 'Oceans.pdf', {
       type: 'application/pdf',
     });
     const song = await addSongFile({
       file,
-      folderId: DEFAULT_CHORDS_FOLDER_ID,
+      folderId: UNFILED_FOLDER_ID,
     });
 
     await updateSongMeta(song.id, { title: 'Oceans (Where Feet May Fail)', songKey: 'D' });
@@ -127,19 +347,18 @@ describe('WorshipDeck Offline Database & Outbox Sync Logic', () => {
   });
 
   it('supports creating custom folders, playlists, adding songs, and reordering lineup', async () => {
-    await ensureDefaultFolders();
     const customFolder = await createFolder('Christmas Special');
     const file1 = new File([new Uint8Array([1])], 'Song_A.pdf', {
       type: 'application/pdf',
     });
-    const file2 = new File([new Uint8Array([2])], 'Song_B.png', {
-      type: 'image/png',
+    const file2 = new File([new Uint8Array([2])], 'Song_B.pptx', {
+      type: PPTX_MIME,
     });
 
     const songA = await addSongFile({ file: file1, folderId: customFolder.id });
     const songB = await addSongFile({
       file: file2,
-      folderId: DEFAULT_LYRICS_FOLDER_ID,
+      folderId: UNFILED_FOLDER_ID,
     });
 
     const playlist = await createPlaylist({
@@ -161,13 +380,12 @@ describe('WorshipDeck Offline Database & Outbox Sync Logic', () => {
   });
 
   it('protects pending local edits during remote merge and removes blobs on remote delete', async () => {
-    await ensureDefaultFolders();
     const file = new File([new Uint8Array([10, 20, 30])], 'Build_My_Life.pdf', {
       type: 'application/pdf',
     });
     const localSong = await addSongFile({
       file,
-      folderId: DEFAULT_CHORDS_FOLDER_ID,
+      folderId: UNFILED_FOLDER_ID,
       title: 'Local Edited Title',
     });
 

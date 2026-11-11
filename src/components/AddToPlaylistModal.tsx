@@ -1,6 +1,16 @@
 import { useMemo, useState } from 'react';
-import { Check, FileText, Image as ImageIcon, ListMusic, Plus, Search, X } from 'lucide-react';
-import type { Folder, Playlist, PlaylistItem, Song } from '../types/models';
+import {
+  Check,
+  FileText,
+  Image as ImageIcon,
+  ListMusic,
+  Plus,
+  Presentation,
+  Search,
+  X,
+} from 'lucide-react';
+import { UNFILED_FOLDER_ID, type Folder, type Playlist, type PlaylistItem, type Song } from '../types/models';
+import { isPowerPointType } from '../utils/format';
 
 export type AddToPlaylistMode =
   | { type: 'pick-playlists-for-song'; song: Song }
@@ -100,7 +110,7 @@ export function AddToPlaylistModal({
               <p className="text-xs text-slate-400">
                 {mode.type === 'pick-playlists-for-song'
                   ? 'Select one or more worship lineups'
-                  : 'Pick chords or lyrics sheets for this setlist'}
+                  : 'Pick chords, lyrics sheets, or slides for this setlist'}
               </p>
             </div>
           </div>
@@ -220,6 +230,8 @@ export function AddToPlaylistModal({
                       <div className="flex min-w-0 items-center gap-2.5">
                         {s.fileType === 'pdf' ? (
                           <FileText className="h-4 w-4 shrink-0 text-rose-400" />
+                        ) : isPowerPointType(s.fileType) ? (
+                          <Presentation className="h-4 w-4 shrink-0 text-indigo-400" />
                         ) : (
                           <ImageIcon className="h-4 w-4 shrink-0 text-sky-400" />
                         )}
@@ -228,7 +240,8 @@ export function AddToPlaylistModal({
                             {s.title}
                           </p>
                           <p className="truncate text-xs text-slate-400">
-                            {folderMap.get(s.folderId) || 'Folder'}
+                            {folderMap.get(s.folderId) ||
+                              (s.folderId === UNFILED_FOLDER_ID ? 'All Songs' : 'Folder')}
                             {s.songKey ? ` • Key: ${s.songKey}` : ''}
                             {alreadyIn ? ' • Already in playlist' : ''}
                           </p>

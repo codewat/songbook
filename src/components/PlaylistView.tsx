@@ -10,10 +10,12 @@ import {
   Pencil,
   Play,
   Plus,
+  Presentation,
   Trash2,
   Upload,
 } from 'lucide-react';
-import type { Folder, Playlist, PlaylistItem, Song } from '../types/models';
+import { UNFILED_FOLDER_ID, type Folder, type Playlist, type PlaylistItem, type Song } from '../types/models';
+import { isPowerPointType } from '../utils/format';
 
 interface PlaylistViewProps {
   playlist: Playlist;
@@ -135,7 +137,7 @@ export function PlaylistView({
               Empty Worship Lineup
             </h2>
             <p className="mt-1.5 text-sm text-slate-400">
-              Add songs from your Chords or Lyrics folders to prepare your Sunday lineup.
+              Add songs, chords, or slides from your library to prepare your Sunday lineup.
             </p>
             <div className="mt-5 flex justify-center gap-2.5">
               <button
@@ -177,6 +179,8 @@ export function PlaylistView({
                   >
                     {song.fileType === 'pdf' ? (
                       <FileText className="h-5 w-5 shrink-0 text-rose-400" />
+                    ) : isPowerPointType(song.fileType) ? (
+                      <Presentation className="h-5 w-5 shrink-0 text-indigo-400" />
                     ) : (
                       <ImageIcon className="h-5 w-5 shrink-0 text-sky-400" />
                     )}
@@ -185,7 +189,10 @@ export function PlaylistView({
                         {song.title}
                       </p>
                       <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-slate-400">
-                        <span>{folderMap.get(song.folderId) || 'Folder'}</span>
+                        <span>
+                          {folderMap.get(song.folderId) ||
+                            (song.folderId === UNFILED_FOLDER_ID ? 'All Songs' : 'Folder')}
+                        </span>
                         {song.songKey && (
                           <span className="font-medium text-amber-300">
                             Key: {song.songKey}

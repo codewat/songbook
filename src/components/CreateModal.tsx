@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { FolderPlus, ListMusic, Pencil, X } from 'lucide-react';
-import type { Folder, Playlist, Song } from '../types/models';
+import { UNFILED_FOLDER_ID, type Folder, type Playlist, type Song } from '../types/models';
 
 export type CreateModalMode =
   | { type: 'create-folder' }
@@ -206,6 +206,7 @@ export function CreateModal({
                   onChange={(e) => setFolderId(e.target.value)}
                   className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2.5 text-sm text-white outline-none focus:border-amber-500"
                 >
+                  <option value={UNFILED_FOLDER_ID}>All Songs (No Folder)</option>
                   {mode.folders.map((f) => (
                     <option key={f.id} value={f.id}>
                       {f.name}

@@ -36,6 +36,7 @@
   filter: invert(0.92) hue-rotate(180deg) contrast(1.08);
 }
 
-.stage-invert-image {
+.stage-invert-image,
+.stage-invert-slides {
   filter: invert(0.92) hue-rotate(180deg) contrast(1.08);
 }
