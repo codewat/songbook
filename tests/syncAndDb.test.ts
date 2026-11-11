@@ -38,6 +38,12 @@ import {
   formatExportZipFileName,
 } from '../src/utils/exportZip';
 import {
+  canHorizontalSwipeNavigate,
+  clampViewerZoom,
+  getTouchDistance,
+  shouldCommitHorizontalSwipe,
+} from '../src/utils/viewerGestures';
+import {
   PPTX_MIME,
   PPT_MIME,
   base64ToBytes,
@@ -562,5 +568,77 @@ describe('SongBook Offline Database, PowerPoint Support & Outbox Sync', () => {
     expect(matchesSongTitle(song, 'G')).toBe(false);
     expect(matchesSongTitle(song, 'Capo')).toBe(false);
     expect(matchesSongTitle(song, 'Track_01')).toBe(false);
+  });
+
+  it('handles viewer zoom bounds, pinch touch distance, and horizontal swipe rules accurately', () => {
+    expect(clampViewerZoom(Number.NaN)).toBe(1);
+    expect(clampViewerZoom(0.2)).toBe(0.6);
+    expect(clampViewerZoom(3.5)).toBe(2.5);
+    expect(clampViewerZoom(1.234)).toBe(1.23);
+
+    expect(
+      getTouchDistance({ clientX: 0, clientY: 0 }, { clientX: 30, clientY: 40 })
+    ).toBe(50);
+
+    // At 100% zoom, crisp horizontal swipe initiates navigation while vertical scroll does not
+    expect(
+      canHorizontalSwipeNavigate({
+        zoom: 1,
+        dx: -40,
+        dy: 8,
+        startScrollLeft: 0,
+        scrollWidth: 380,
+        clientWidth: 380,
+      })
+    ).toBe(true);
+    expect(
+      canHorizontalSwipeNavigate({
+        zoom: 1,
+        dx: -12,
+        dy: 45,
+        startScrollLeft: 0,
+        scrollWidth: 380,
+        clientWidth: 380,
+      })
+    ).toBe(false);
+
+    // When zoomed wider than viewport, panning from the middle preserves horizontal scroll
+    expect(
+      canHorizontalSwipeNavigate({
+        zoom: 1.8,
+        dx: -50,
+        dy: 4,
+        startScrollLeft: 120,
+        scrollWidth: 800,
+        clientWidth: 380,
+      })
+    ).toBe(false);
+    // Starting from left/right edge when zoomed still allows switching songs/slides
+    expect(
+      canHorizontalSwipeNavigate({
+        zoom: 1.8,
+        dx: 50,
+        dy: 4,
+        startScrollLeft: 0,
+        scrollWidth: 800,
+        clientWidth: 380,
+      })
+    ).toBe(true);
+    expect(
+      canHorizontalSwipeNavigate({
+        zoom: 1.8,
+        dx: -50,
+        dy: 4,
+        startScrollLeft: 420,
+        scrollWidth: 800,
+        clientWidth: 380,
+      })
+    ).toBe(true);
+
+    // Swipe commit thresholds (quick flick vs long drag vs short/diagonal jitter)
+    expect(shouldCommitHorizontalSwipe({ dx: -40, dy: 5, elapsedMs: 180 })).toBe('next');
+    expect(shouldCommitHorizontalSwipe({ dx: 65, dy: 10, elapsedMs: 450 })).toBe('prev');
+    expect(shouldCommitHorizontalSwipe({ dx: -30, dy: 5, elapsedMs: 120 })).toBeNull();
+    expect(shouldCommitHorizontalSwipe({ dx: -60, dy: 55, elapsedMs: 200 })).toBeNull();
   });
 });

@@ -7,6 +7,7 @@ import {
   FileText,
   Image as ImageIcon,
   ListMusic,
+  Maximize2,
   Pencil,
   Play,
   Plus,
@@ -23,7 +24,7 @@ interface PlaylistViewProps {
   songs: Song[];
   folders: Folder[];
   cachedSongIds: Set<string>;
-  onStartStageMode: (startIndex: number) => void;
+  onStartStageMode: (startIndex: number, options?: { fullscreen?: boolean }) => void;
   onAddSongsClick: () => void;
   onUploadToPlaylistClick: () => void;
   onEditPlaylist: () => void;
@@ -83,14 +84,25 @@ export function PlaylistView({
 
           <div className="flex flex-wrap items-center gap-2">
             {resolvedRows.length > 0 && (
-              <button
-                type="button"
-                onClick={() => onStartStageMode(0)}
-                className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-bold text-slate-950 shadow-lg shadow-amber-500/15 hover:bg-amber-400"
-              >
-                <Play className="h-4 w-4 fill-current" />
-                Stage Mode
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => onStartStageMode(0)}
+                  className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-bold text-slate-950 shadow-lg shadow-amber-500/15 hover:bg-amber-400"
+                >
+                  <Play className="h-4 w-4 fill-current" />
+                  Stage Mode
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onStartStageMode(0, { fullscreen: true })}
+                  title="Open lineup in Full Screen with swipe and pinch zoom"
+                  className="inline-flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/15 px-3.5 py-2.5 text-sm font-semibold text-amber-200 hover:bg-amber-500/25"
+                >
+                  <Maximize2 className="h-4 w-4" />
+                  Full Screen
+                </button>
+              </>
             )}
             <button
               type="button"
@@ -213,6 +225,15 @@ export function PlaylistView({
                   </button>
 
                   <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      title="Open Full Screen"
+                      aria-label={`Open ${song.title} in Full Screen`}
+                      onClick={() => onStartStageMode(index, { fullscreen: true })}
+                      className="rounded-lg p-1.5 text-amber-300 hover:bg-amber-500/15 hover:text-amber-200"
+                    >
+                      <Maximize2 className="h-4 w-4" />
+                    </button>
                     <button
                       type="button"
                       disabled={isFirst}

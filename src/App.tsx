@@ -87,6 +87,7 @@ export function App() {
   const [viewerState, setViewerState] = useState<{
     queue: Song[];
     index: number;
+    initialFullscreen?: boolean;
   } | null>(null);
 
   const [toast, setToast] = useState<string | null>(null);
@@ -444,13 +445,23 @@ export function App() {
               songs={songs}
               folders={folders}
               cachedSongIds={cachedSongIds}
-              onStartStageMode={(startIdx) => {
+              onStartStageMode={(startIdx, options) => {
                 const songMap = new Map(songs.map((s) => [s.id, s]));
                 const queue = activePlaylistItems
                   .map((i) => songMap.get(i.songId))
                   .filter((s): s is Song => Boolean(s));
                 if (queue.length > 0) {
-                  setViewerState({ queue, index: startIdx });
+                  const wantsFullscreen = Boolean(options?.fullscreen);
+                  if (wantsFullscreen && !document.fullscreenElement) {
+                    document.documentElement
+                      .requestFullscreen?.()
+                      .catch(() => undefined);
+                  }
+                  setViewerState({
+                    queue,
+                    index: startIdx,
+                    initialFullscreen: wantsFullscreen,
+                  });
                 }
               }}
               onAddSongsClick={() =>
@@ -632,9 +643,15 @@ export function App() {
         <ViewerModal
           songsQueue={viewerState.queue}
           initialIndex={viewerState.index}
+          initialFullscreen={viewerState.initialFullscreen}
           folders={folders}
           stagePrefs={stagePrefs}
-          onClose={() => setViewerState(null)}
+          onClose={() => {
+            if (document.fullscreenElement) {
+              document.exitFullscreen?.().catch(() => undefined);
+            }
+            setViewerState(null);
+          }}
         />
       )}
 
