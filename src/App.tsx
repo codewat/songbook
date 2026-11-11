@@ -274,9 +274,6 @@ export function App() {
         return;
       }
       if (action === 'close-viewer') {
-        if (document.fullscreenElement) {
-          document.exitFullscreen?.().catch(() => undefined);
-        }
         setViewerState(null);
         pushGuardState();
         return;
@@ -589,16 +586,10 @@ export function App() {
                   .map((i) => songMap.get(i.songId))
                   .filter((s): s is Song => Boolean(s));
                 if (queue.length > 0) {
-                  const wantsFullscreen = Boolean(options?.fullscreen);
-                  if (wantsFullscreen && !document.fullscreenElement) {
-                    document.documentElement
-                      .requestFullscreen?.()
-                      .catch(() => undefined);
-                  }
                   setViewerState({
                     queue,
                     index: startIdx,
-                    initialFullscreen: wantsFullscreen,
+                    initialFullscreen: Boolean(options?.fullscreen),
                   });
                 }
               }}
@@ -818,12 +809,7 @@ export function App() {
           initialFullscreen={viewerState.initialFullscreen}
           folders={folders}
           stagePrefs={stagePrefs}
-          onClose={() => {
-            if (document.fullscreenElement) {
-              document.exitFullscreen?.().catch(() => undefined);
-            }
-            setViewerState(null);
-          }}
+          onClose={() => setViewerState(null)}
         />
       )}
 

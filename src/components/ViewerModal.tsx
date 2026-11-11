@@ -77,9 +77,6 @@ export function ViewerModal({
 
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const slideViewportRef = useRef<HTMLDivElement>(null);
-  const wasNativeFullscreenRef = useRef(
-    typeof document !== 'undefined' && Boolean(document.fullscreenElement)
-  );
   const zoomRef = useRef(zoom);
   zoomRef.current = zoom;
   const pinchScaleRef = useRef(1);
@@ -105,26 +102,11 @@ export function ViewerModal({
     currentIndex < songsQueue.length - 1;
 
   const handleClose = () => {
-    if (document.fullscreenElement) {
-      document.exitFullscreen?.().catch(() => undefined);
-    }
-    wasNativeFullscreenRef.current = false;
     onClose();
   };
 
   const toggleFullscreen = () => {
-    if (isFullscreen) {
-      if (document.fullscreenElement) {
-        document.exitFullscreen?.().catch(() => undefined);
-      }
-      wasNativeFullscreenRef.current = false;
-      setIsFullscreen(false);
-    } else {
-      if (!document.fullscreenElement) {
-        document.documentElement.requestFullscreen?.().catch(() => undefined);
-      }
-      setIsFullscreen(true);
-    }
+    setIsFullscreen((prev) => !prev);
   };
 
   const handleGoNext = () => {
@@ -171,22 +153,6 @@ export function ViewerModal({
   useEffect(() => {
     setIsFullscreen(Boolean(initialFullscreen));
   }, [initialFullscreen]);
-
-  useEffect(() => {
-    const handleFullscreenChange = () => {
-      const nativeActive = Boolean(document.fullscreenElement);
-      if (nativeActive) {
-        wasNativeFullscreenRef.current = true;
-        setIsFullscreen(true);
-      } else if (wasNativeFullscreenRef.current) {
-        wasNativeFullscreenRef.current = false;
-        setIsFullscreen(false);
-      }
-    };
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () =>
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
-  }, []);
 
   useEffect(() => {
     setStageDarkSheet(stagePrefs?.defaultStageInvert ?? false);
@@ -418,10 +384,6 @@ export function ViewerModal({
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (isFullscreen) {
-          if (document.fullscreenElement) {
-            document.exitFullscreen?.().catch(() => undefined);
-          }
-          wasNativeFullscreenRef.current = false;
           setIsFullscreen(false);
           return;
         }
