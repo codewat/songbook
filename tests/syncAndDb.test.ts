@@ -44,6 +44,10 @@ import {
   shouldCommitHorizontalSwipe,
 } from '../src/utils/viewerGestures';
 import {
+  resolveBackNavigationAction,
+  shouldPromptBeforeUnload,
+} from '../src/utils/exitGuard';
+import {
   PPTX_MIME,
   PPT_MIME,
   base64ToBytes,
@@ -640,5 +644,39 @@ describe('SongBook Offline Database, PowerPoint Support & Outbox Sync', () => {
     expect(shouldCommitHorizontalSwipe({ dx: 65, dy: 10, elapsedMs: 450 })).toBe('prev');
     expect(shouldCommitHorizontalSwipe({ dx: -30, dy: 5, elapsedMs: 120 })).toBeNull();
     expect(shouldCommitHorizontalSwipe({ dx: -60, dy: 55, elapsedMs: 200 })).toBeNull();
+  });
+
+  it('resolves back navigation layers cleanly and prompts before closing at app root', () => {
+    const cleanRoot = {
+      exitPromptOpen: false,
+      confirmOpen: false,
+      viewerOpen: false,
+      settingsOpen: false,
+      uploadOpen: false,
+      createModalOpen: false,
+      addToPlaylistOpen: false,
+      mobileSidebarOpen: false,
+    };
+
+    expect(resolveBackNavigationAction(cleanRoot)).toBe('prompt-exit');
+    expect(
+      resolveBackNavigationAction({ ...cleanRoot, mobileSidebarOpen: true })
+    ).toBe('close-sidebar');
+    expect(
+      resolveBackNavigationAction({ ...cleanRoot, viewerOpen: true, mobileSidebarOpen: true })
+    ).toBe('close-viewer');
+    expect(
+      resolveBackNavigationAction({ ...cleanRoot, settingsOpen: true, viewerOpen: true })
+    ).toBe('close-settings');
+    expect(
+      resolveBackNavigationAction({ ...cleanRoot, confirmOpen: true, settingsOpen: true })
+    ).toBe('close-confirm');
+    expect(
+      resolveBackNavigationAction({ ...cleanRoot, exitPromptOpen: true })
+    ).toBe('dismiss-exit-prompt');
+
+    expect(shouldPromptBeforeUnload({ allowExit: false, hasInteracted: false })).toBe(false);
+    expect(shouldPromptBeforeUnload({ allowExit: false, hasInteracted: true })).toBe(true);
+    expect(shouldPromptBeforeUnload({ allowExit: true, hasInteracted: true })).toBe(false);
   });
 });

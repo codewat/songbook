@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Layers, Library, ListMusic, Upload } from 'lucide-react';
 import {
   addSongFile,
@@ -50,6 +50,11 @@ import {
 import { ConfirmModal } from './components/ConfirmModal';
 import { ViewerModal } from './components/ViewerModal';
 import { SyncSettingsModal } from './components/SyncSettingsModal';
+import {
+  resolveBackNavigationAction,
+  shouldPromptBeforeUnload,
+  type AppOverlaySnapshot,
+} from './utils/exitGuard';
 
 export function App() {
   const isOnline = useOnlineStatus();
@@ -89,8 +94,33 @@ export function App() {
     index: number;
     initialFullscreen?: boolean;
   } | null>(null);
+  const [exitPromptOpen, setExitPromptOpen] = useState(false);
 
   const [toast, setToast] = useState<string | null>(null);
+
+  const hasInteractedRef = useRef(false);
+  const allowExitRef = useRef(false);
+  const exitFallbackTimerRef = useRef<number | null>(null);
+  const overlaySnapshotRef = useRef<AppOverlaySnapshot>({
+    exitPromptOpen: false,
+    confirmOpen: false,
+    viewerOpen: false,
+    settingsOpen: false,
+    uploadOpen: false,
+    createModalOpen: false,
+    addToPlaylistOpen: false,
+    mobileSidebarOpen: false,
+  });
+  overlaySnapshotRef.current = {
+    exitPromptOpen,
+    confirmOpen: Boolean(confirmState),
+    viewerOpen: Boolean(viewerState),
+    settingsOpen,
+    uploadOpen,
+    createModalOpen: Boolean(createMode),
+    addToPlaylistOpen: Boolean(addToPlaylistMode),
+    mobileSidebarOpen,
+  };
 
   const [syncStatus, setSyncStatus] = useState<SyncStatusInfo>({
     state: 'local-only',
@@ -193,6 +223,114 @@ export function App() {
       syncManager.stopRealtime();
     };
   }, [refreshLocalData, showToast]);
+
+  // Guard against accidental Back exit (mobile/PWA) and tab/window close
+  useEffect(() => {
+    const pushGuardState = () => {
+      if (window.location.hash.startsWith('#setup=')) return;
+      if (!(window.history.state as { songbookRootGuard?: boolean } | null)?.songbookRootGuard) {
+        window.history.pushState({ songbookRootGuard: true }, '');
+      }
+    };
+
+    const handleUserInteraction = () => {
+      hasInteractedRef.current = true;
+      if (overlaySnapshotRef.current.exitPromptOpen) return;
+      allowExitRef.current = false;
+      pushGuardState();
+    };
+
+    const handlePopState = () => {
+      if (allowExitRef.current) return;
+      if ((window.history.state as { songbookRootGuard?: boolean } | null)?.songbookRootGuard) {
+        return;
+      }
+
+      const action = resolveBackNavigationAction(overlaySnapshotRef.current);
+      if (action === 'close-confirm') {
+        setConfirmState(null);
+        pushGuardState();
+        return;
+      }
+      if (action === 'close-create-modal') {
+        setCreateMode(null);
+        pushGuardState();
+        return;
+      }
+      if (action === 'close-add-to-playlist') {
+        setAddToPlaylistMode(null);
+        pushGuardState();
+        return;
+      }
+      if (action === 'close-upload') {
+        setUploadOpen(false);
+        setDroppedFiles([]);
+        pushGuardState();
+        return;
+      }
+      if (action === 'close-settings') {
+        setSettingsOpen(false);
+        pushGuardState();
+        return;
+      }
+      if (action === 'close-viewer') {
+        if (document.fullscreenElement) {
+          document.exitFullscreen?.().catch(() => undefined);
+        }
+        setViewerState(null);
+        pushGuardState();
+        return;
+      }
+      if (action === 'close-sidebar') {
+        setMobileSidebarOpen(false);
+        pushGuardState();
+        return;
+      }
+      if (action === 'dismiss-exit-prompt') {
+        allowExitRef.current = true;
+        setExitPromptOpen(false);
+        window.history.back();
+        return;
+      }
+
+      setExitPromptOpen(true);
+    };
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (
+        !shouldPromptBeforeUnload({
+          allowExit: allowExitRef.current,
+          hasInteracted: hasInteractedRef.current,
+        })
+      ) {
+        return;
+      }
+      e.preventDefault();
+      e.returnValue = '';
+    };
+
+    const clearFallbackTimer = () => {
+      if (exitFallbackTimerRef.current !== null) {
+        window.clearTimeout(exitFallbackTimerRef.current);
+        exitFallbackTimerRef.current = null;
+      }
+    };
+
+    window.addEventListener('pointerdown', handleUserInteraction, { capture: true });
+    window.addEventListener('keydown', handleUserInteraction, { capture: true });
+    window.addEventListener('popstate', handlePopState);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('pagehide', clearFallbackTimer);
+
+    return () => {
+      window.removeEventListener('pointerdown', handleUserInteraction, { capture: true });
+      window.removeEventListener('keydown', handleUserInteraction, { capture: true });
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('pagehide', clearFallbackTimer);
+      clearFallbackTimer();
+    };
+  }, []);
 
   // Automatically trigger sync whenever connection comes back online
   useEffect(() => {
@@ -637,6 +775,40 @@ export function App() {
         confirmLabel={confirmState?.confirmLabel || 'Confirm'}
         onConfirm={() => void confirmState?.onConfirm()}
         onCancel={() => setConfirmState(null)}
+      />
+
+      <ConfirmModal
+        open={exitPromptOpen}
+        title="Close SongBook?"
+        message="Do you want to close the app?"
+        confirmLabel="Close App"
+        cancelLabel="Stay in App"
+        danger={false}
+        onCancel={() => {
+          allowExitRef.current = false;
+          setExitPromptOpen(false);
+          if (
+            !window.location.hash.startsWith('#setup=') &&
+            !(window.history.state as { songbookRootGuard?: boolean } | null)
+              ?.songbookRootGuard
+          ) {
+            window.history.pushState({ songbookRootGuard: true }, '');
+          }
+        }}
+        onConfirm={() => {
+          allowExitRef.current = true;
+          setExitPromptOpen(false);
+          window.close();
+          window.setTimeout(() => {
+            window.history.back();
+          }, 40);
+          if (exitFallbackTimerRef.current !== null) {
+            window.clearTimeout(exitFallbackTimerRef.current);
+          }
+          exitFallbackTimerRef.current = window.setTimeout(() => {
+            showToast('Close this browser tab or swipe Home to exit SongBook.');
+          }, 300);
+        }}
       />
 
       {viewerState && (
