@@ -11,7 +11,6 @@ import {
 import type { SyncStatusInfo } from '../types/models';
 
 interface HeaderProps {
-  churchName: string;
   syncStatus: SyncStatusInfo;
   onToggleSidebar: () => void;
   onSyncClick: () => void;
@@ -20,7 +19,6 @@ interface HeaderProps {
 }
 
 export function Header({
-  churchName,
   syncStatus,
   onToggleSidebar,
   onSyncClick,
@@ -113,10 +111,7 @@ export function Header({
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 text-slate-950 shadow-md shadow-amber-500/20">
             <Music className="h-5 w-5" />
           </div>
-          <div className="leading-tight">
-            <p className="text-sm font-bold text-white sm:text-base">WorshipDeck</p>
-            <p className="hidden text-[11px] text-slate-400 sm:block">{churchName}</p>
-          </div>
+          <p className="text-sm font-bold text-white sm:text-base">SongBook</p>
         </div>
       </div>
 

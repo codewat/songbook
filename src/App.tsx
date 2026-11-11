@@ -16,7 +16,6 @@ import {
   getAllActivePlaylistItems,
   getAllCachedSongIds,
   getOfflineStorageStats,
-  getSavedCloudConfig,
   getStagePreferences,
   removePlaylistItem,
   renameFolder,
@@ -64,7 +63,6 @@ export function App() {
     cachedFilesCount: 0,
     totalBytes: 0,
   });
-  const [churchName, setChurchName] = useState('Church Worship Team');
   const [stagePrefs, setStagePrefs] = useState<StagePreferences>(
     DEFAULT_STAGE_PREFERENCES
   );
@@ -112,14 +110,13 @@ export function App() {
 
   const refreshLocalData = useCallback(async () => {
     await cleanupLegacyDefaultFolders();
-    const [f, s, p, pi, cached, stats, cfg, prefs] = await Promise.all([
+    const [f, s, p, pi, cached, stats, prefs] = await Promise.all([
       getActiveFolders(),
       getActiveSongs(),
       getActivePlaylists(),
       getAllActivePlaylistItems(),
       getAllCachedSongIds(),
       getOfflineStorageStats(),
-      getSavedCloudConfig(),
       getStagePreferences(),
     ]);
     setFolders(f);
@@ -128,7 +125,6 @@ export function App() {
     setPlaylistItems(pi);
     setCachedSongIds(cached);
     setStorageStats(stats);
-    setChurchName(cfg?.churchName || 'Church Worship Team');
     setStagePrefs(prefs);
   }, []);
 
@@ -409,7 +405,6 @@ export function App() {
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-slate-950 text-slate-100">
       <Header
-        churchName={churchName}
         syncStatus={syncStatus}
         onToggleSidebar={() => setMobileSidebarOpen(true)}
         onSyncClick={() => void syncManager.syncAll()}
@@ -607,7 +602,6 @@ export function App() {
 
       <SyncSettingsModal
         open={settingsOpen}
-        churchName={churchName}
         syncStatus={syncStatus}
         storageStats={storageStats}
         songs={songs}

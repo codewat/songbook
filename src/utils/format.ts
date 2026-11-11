@@ -42,6 +42,12 @@ export function cleanSongTitleFromFilename(fileName: string): string {
   return withoutExt.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim() || 'Untitled Song';
 }
 
+export function matchesSongTitle(song: { title: string }, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return song.title.toLowerCase().includes(q);
+}
+
 export function sanitizeStorageFileName(fileName: string): string {
   return fileName
     .normalize('NFKD')

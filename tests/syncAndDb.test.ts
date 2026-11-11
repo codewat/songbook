@@ -43,6 +43,7 @@ import {
   base64ToBytes,
   bytesToBase64,
   detectFileType,
+  matchesSongTitle,
   parseFirebaseConfigSnippet,
 } from '../src/utils/format';
 import { parsePresentationBlob } from '../src/utils/powerpoint';
@@ -96,7 +97,7 @@ function encodeAscii(text: string): Uint8Array {
   return out;
 }
 
-describe('WorshipDeck Offline Database, PowerPoint Support & Outbox Sync', () => {
+describe('SongBook Offline Database, PowerPoint Support & Outbox Sync', () => {
   beforeEach(async () => {
     await clearAllStores();
   });
@@ -491,7 +492,7 @@ describe('WorshipDeck Offline Database, PowerPoint Support & Outbox Sync', () =>
     expect(buildUniqueZipPath(used, 'Chords/Team', 'Grace.pdf')).toBe('Chords_Team/Grace.pdf');
     expect(buildUniqueZipPath(used, 'Chords/Team', 'Grace.pdf')).toBe('Chords_Team/Grace (2).pdf');
     expect(formatExportZipFileName(new Date('2026-11-10T12:00:00Z'))).toMatch(
-      /^worshipdeck-songs-\d{4}-\d{2}-\d{2}\.zip$/
+      /^songbook-songs-\d{4}-\d{2}-\d{2}\.zip$/
     );
 
     const worshipFolder = await createFolder('Sunday Acoustic');
@@ -540,5 +541,26 @@ describe('WorshipDeck Offline Database, PowerPoint Support & Outbox Sync', () =>
       'Sunday Acoustic/Oceans (2).pdf',
       'Sunday Acoustic/Oceans.pdf',
     ]);
+  });
+
+  it('filters songs strictly by song title without matching key or notes', async () => {
+    const file = new File([new Uint8Array([37, 80, 68, 70])], 'Track_01.pdf', {
+      type: 'application/pdf',
+    });
+    const song = await addSongFile({
+      file,
+      folderId: UNFILED_FOLDER_ID,
+      title: 'Holy Forever',
+      songKey: 'G',
+      tempo: '72 BPM',
+      notes: 'Capo 3 acoustic bridge',
+    });
+
+    expect(matchesSongTitle(song, '')).toBe(true);
+    expect(matchesSongTitle(song, 'holy')).toBe(true);
+    expect(matchesSongTitle(song, 'Forever')).toBe(true);
+    expect(matchesSongTitle(song, 'G')).toBe(false);
+    expect(matchesSongTitle(song, 'Capo')).toBe(false);
+    expect(matchesSongTitle(song, 'Track_01')).toBe(false);
   });
 });

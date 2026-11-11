@@ -11,10 +11,10 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'icons/apple-touch-icon.png', 'icons/icon-192.png', 'icons/icon-512.png'],
       manifest: {
-        name: 'WorshipDeck — Church Songbook',
-        short_name: 'WorshipDeck',
+        name: 'SongBook',
+        short_name: 'SongBook',
         description:
-          'Offline-first Chords, Lyrics, PowerPoint Slides & Worship Lineup Songbook for Church Teams',
+          'Offline-first Chords, Lyrics, PowerPoint Slides & Worship Lineup SongBook for Church Teams',
         theme_color: '#0f172a',
         background_color: '#0f172a',
         display: 'standalone',

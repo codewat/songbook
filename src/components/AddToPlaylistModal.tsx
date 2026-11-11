@@ -10,7 +10,7 @@ import {
   X,
 } from 'lucide-react';
 import { UNFILED_FOLDER_ID, type Folder, type Playlist, type PlaylistItem, type Song } from '../types/models';
-import { isPowerPointType } from '../utils/format';
+import { isPowerPointType, matchesSongTitle } from '../utils/format';
 
 export type AddToPlaylistMode =
   | { type: 'pick-playlists-for-song'; song: Song }
@@ -54,17 +54,11 @@ export function AddToPlaylistModal({
   }, [mode, playlistItems]);
 
   const filteredSongs = useMemo(() => {
-    const q = query.trim().toLowerCase();
     return songs.filter((s) => {
       if (folderFilter !== 'all' && s.folderId !== folderFilter) return false;
-      if (!q) return true;
-      return (
-        s.title.toLowerCase().includes(q) ||
-        (s.songKey && s.songKey.toLowerCase().includes(q)) ||
-        (folderMap.get(s.folderId)?.toLowerCase().includes(q) ?? false)
-      );
+      return matchesSongTitle(s, query);
     });
-  }, [songs, query, folderFilter, folderMap]);
+  }, [songs, query, folderFilter]);
 
   if (!mode) return null;
 
@@ -189,7 +183,7 @@ export function AddToPlaylistModal({
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search songs or key..."
+                  placeholder="Search song title..."
                   className="w-full rounded-xl border border-slate-700 bg-slate-950 py-2 pr-3 pl-9 text-sm text-white placeholder-slate-500 outline-none focus:border-amber-500"
                 />
               </div>

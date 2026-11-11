@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { FolderOpen, Music, Search, Upload } from 'lucide-react';
 import { UNFILED_FOLDER_ID, type Folder, type Song } from '../types/models';
-import { isPowerPointType } from '../utils/format';
+import { isPowerPointType, matchesSongTitle } from '../utils/format';
 import { SongCard } from './SongCard';
 
 interface FolderViewProps {
@@ -39,20 +39,13 @@ export function FolderView({
   );
 
   const filteredSongs = useMemo(() => {
-    const q = search.trim().toLowerCase();
     return songs.filter((s) => {
       if (folder && s.folderId !== folder.id) return false;
       if (typeFilter === 'slides' && !isPowerPointType(s.fileType)) return false;
       if ((typeFilter === 'pdf' || typeFilter === 'image') && s.fileType !== typeFilter) {
         return false;
       }
-      if (!q) return true;
-      return (
-        s.title.toLowerCase().includes(q) ||
-        s.fileName.toLowerCase().includes(q) ||
-        (s.songKey && s.songKey.toLowerCase().includes(q)) ||
-        (s.notes && s.notes.toLowerCase().includes(q))
-      );
+      return matchesSongTitle(s, search);
     });
   }, [songs, folder, typeFilter, search]);
 
@@ -116,7 +109,7 @@ export function FolderView({
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search song title, key (G, C, D), or notes..."
+              placeholder="Search song title..."
               className="w-full rounded-xl border border-slate-800 bg-slate-900 py-2 pr-3 pl-9 text-sm text-white placeholder-slate-500 outline-none focus:border-amber-500"
             />
           </div>

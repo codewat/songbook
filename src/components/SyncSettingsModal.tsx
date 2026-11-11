@@ -48,7 +48,6 @@ import {
 
 interface SyncSettingsModalProps {
   open: boolean;
-  churchName: string;
   syncStatus: SyncStatusInfo;
   storageStats: { cachedFilesCount: number; totalBytes: number };
   songs: Song[];
@@ -62,7 +61,6 @@ interface SyncSettingsModalProps {
 
 export function SyncSettingsModal({
   open,
-  churchName: appChurchName,
   syncStatus,
   storageStats,
   songs,
@@ -213,8 +211,8 @@ export function SyncSettingsModal({
   const handleInstallApp = async () => {
     const outcome = await promptInstall();
     if (outcome === 'accepted') {
-      setInstallFeedback('Installing WorshipDeck on your device...');
-      onShowToast?.('Installing WorshipDeck App!');
+      setInstallFeedback('Installing SongBook on your device...');
+      onShowToast?.('Installing SongBook App!');
     } else if (outcome === 'dismissed') {
       setInstallFeedback('Install cancelled — you can install anytime from Settings.');
     }
@@ -234,8 +232,8 @@ export function SyncSettingsModal({
     }
     try {
       await navigator.share({
-        title: `WorshipDeck — ${appChurchName}`,
-        text: 'Open our church WorshipDeck songbook (chords, lyrics & slides):',
+        title: 'SongBook',
+        text: 'Open our SongBook (chords, lyrics & slides):',
         url: cleanAppUrl,
       });
     } catch (err) {
@@ -389,7 +387,7 @@ export function SyncSettingsModal({
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2.5 py-1 text-[11px] font-medium text-emerald-300">
         <Cloud className="h-3 w-3" />
-        Connected • {appChurchName}
+        Connected • Team Sync
       </span>
     );
   };
@@ -543,7 +541,7 @@ export function SyncSettingsModal({
                 <div>
                   <h3 className="flex items-center gap-2 text-sm font-semibold text-white">
                     <Smartphone className="h-4 w-4 text-sky-400" />
-                    Install WorshipDeck App
+                    Install SongBook App
                   </h3>
                   <p className="mt-1 text-xs text-slate-400">
                     {isInstalled
@@ -551,8 +549,8 @@ export function SyncSettingsModal({
                       : isIos
                         ? 'iPhone / iPad Safari: tap Share (square + arrow) → Add to Home Screen.'
                         : canInstall
-                          ? 'Install on your phone, tablet, or laptop for fullscreen stage use.'
-                          : 'Use Chrome/Edge address bar install icon or browser menu → Install App.'}
+                          ? 'Install SongBook on your phone, tablet, or laptop for fullscreen stage use.'
+                          : 'Use Chrome/Edge address bar install icon or browser menu → Install SongBook.'}
                   </p>
                 </div>
 

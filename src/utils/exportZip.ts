@@ -50,7 +50,7 @@ export function formatExportZipFileName(date: Date = new Date()): string {
   const yyyy = String(date.getFullYear());
   const mm = String(date.getMonth() + 1).padStart(2, '0');
   const dd = String(date.getDate()).padStart(2, '0');
-  return `worshipdeck-songs-${yyyy}-${mm}-${dd}.zip`;
+  return `songbook-songs-${yyyy}-${mm}-${dd}.zip`;
 }
 
 export async function buildSongsArchiveZip(options: {
