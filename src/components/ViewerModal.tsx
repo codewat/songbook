@@ -131,6 +131,9 @@ export function ViewerModal({
     if (isPowerPoint && presentation && pptViewMode === 'slides') {
       if (slideIndex < presentation.slides.length - 1) {
         setSlideIndex((s) => s + 1);
+        setZoom(1);
+        setPinchScale(1);
+        pinchScaleRef.current = 1;
         slideViewportRef.current?.scrollTo({ top: 0, left: 0 });
         return;
       }
@@ -144,6 +147,9 @@ export function ViewerModal({
     if (isPowerPoint && presentation && pptViewMode === 'slides') {
       if (slideIndex > 0) {
         setSlideIndex((s) => s - 1);
+        setZoom(1);
+        setPinchScale(1);
+        pinchScaleRef.current = 1;
         slideViewportRef.current?.scrollTo({ top: 0, left: 0 });
         return;
       }
@@ -452,6 +458,7 @@ export function ViewerModal({
     setSlideIndex(0);
     setPptViewMode('slides');
     setShowNotes(false);
+    setZoom(1);
     setSwipeOffsetX(0);
     setSwipeHint(null);
     setPinchScale(1);
@@ -538,7 +545,13 @@ export function ViewerModal({
         slideViewportRef.current?.clientWidth ||
         container.parentElement?.clientWidth ||
         window.innerWidth;
-      const horizontalPad = isFullscreen ? 12 : 24;
+      const horizontalPad = isFullscreen
+        ? rawViewportWidth >= 640
+          ? 32
+          : 16
+        : rawViewportWidth >= 640
+          ? 48
+          : 24;
       const containerWidth = Math.min(
         Math.max(rawViewportWidth - horizontalPad, 280),
         896
@@ -555,7 +568,9 @@ export function ViewerModal({
 
         const pageWrap = document.createElement('div');
         pageWrap.className =
-          'relative mb-4 overflow-hidden rounded-xl bg-white shadow-xl';
+          pageNum < pdfDoc.numPages
+            ? 'relative mb-4 overflow-hidden rounded-xl bg-white shadow-xl'
+            : 'relative overflow-hidden rounded-xl bg-white shadow-xl';
 
         const canvas = document.createElement('canvas');
         canvas.width = Math.floor(viewport.width * dpr);
@@ -610,7 +625,18 @@ export function ViewerModal({
       ? presentation.slides[Math.min(slideIndex, presentation.slides.length - 1)]
       : null;
 
-  const horizontalPadding = isFullscreen ? 12 : 24;
+  const horizontalPadding = isFullscreen
+    ? viewportSize.width >= 640
+      ? 32
+      : 16
+    : viewportSize.width >= 640
+      ? 48
+      : 24;
+  const verticalPadding = isFullscreen
+    ? 128
+    : viewportSize.width >= 640
+      ? 48
+      : 24;
   const displayZoomPercent = Math.round(clampViewerZoom(zoom * pinchScale) * 100);
 
   let slideScale = zoom;
@@ -618,7 +644,7 @@ export function ViewerModal({
   let scaledSlideHeight = 540;
   if (presentation) {
     const availW = Math.max(viewportSize.width - horizontalPadding, 240);
-    const availH = Math.max(viewportSize.height - horizontalPadding, 180);
+    const availH = Math.max(viewportSize.height - verticalPadding, 180);
     const fitScale = Math.max(
       0.2,
       Math.min(
@@ -1088,9 +1114,7 @@ export function ViewerModal({
       <div
         ref={slideViewportRef}
         style={{ touchAction: 'pan-x pan-y' }}
-        className={`relative flex-1 overflow-auto bg-slate-950 ${
-          isFullscreen ? 'p-1.5 pb-20 sm:p-3 sm:pb-20' : 'p-3 sm:p-6'
-        }`}
+        className="relative flex-1 overflow-auto bg-slate-950"
       >
         <div
           style={{
@@ -1099,10 +1123,12 @@ export function ViewerModal({
               : undefined,
             transformOrigin: 'center top',
           }}
-          className="min-h-full w-fit min-w-full"
+          className={`flex min-h-full w-fit min-w-full flex-col ${
+            isFullscreen ? 'px-2 py-16 sm:px-4 sm:py-16' : 'p-3 sm:p-6'
+          }`}
         >
           {loading && (
-            <div className="flex h-full min-h-[50vh] items-center justify-center">
+            <div className="my-auto flex items-center justify-center">
               <div className="rounded-2xl border border-slate-800 bg-slate-900 px-6 py-4 text-sm text-slate-300">
                 {isPowerPoint
                   ? 'Rendering PowerPoint slides from offline storage...'
@@ -1112,7 +1138,7 @@ export function ViewerModal({
           )}
 
           {error && !loading && (
-            <div className="mx-auto mt-16 max-w-md rounded-2xl border border-rose-500/30 bg-rose-500/10 p-6 text-center">
+            <div className="mx-auto my-auto max-w-md rounded-2xl border border-rose-500/30 bg-rose-500/10 p-6 text-center">
               <p className="text-sm font-medium text-rose-200">{error}</p>
               <button
                 type="button"
@@ -1126,7 +1152,11 @@ export function ViewerModal({
           )}
 
           {!loading && !error && currentSong.fileType === 'image' && imageUrl && (
-            <div className="flex min-h-full w-fit min-w-full items-start justify-center">
+            <div
+              className={`flex w-fit min-w-full justify-center ${
+                isFullscreen ? 'my-auto items-center' : 'min-h-full items-start'
+              }`}
+            >
               <img
                 src={imageUrl}
                 alt={currentSong.title}
@@ -1143,13 +1173,17 @@ export function ViewerModal({
             <div
               ref={canvasContainerRef}
               className={`mx-auto flex w-fit min-w-full flex-col items-center ${
-                stageDarkSheet ? 'stage-invert-pdf' : ''
-              }`}
+                isFullscreen ? 'my-auto' : ''
+              } ${stageDarkSheet ? 'stage-invert-pdf' : ''}`}
             />
           )}
 
           {!loading && !error && isPowerPoint && presentation && pptViewMode === 'slides' && activeSlide && (
-            <div className="flex min-h-full w-fit min-w-full flex-col items-center justify-start gap-4">
+            <div
+              className={`flex w-fit min-w-full flex-col items-center justify-center gap-4 ${
+                isFullscreen ? 'my-auto' : ''
+              }`}
+            >
               <div
                 style={{
                   width: `${scaledSlideWidth}px`,
@@ -1291,7 +1325,11 @@ export function ViewerModal({
           )}
 
           {!loading && !error && isPowerPoint && presentation && pptViewMode === 'text' && (
-            <div className="mx-auto max-w-3xl space-y-4 pb-6">
+            <div
+              className={`mx-auto w-full max-w-3xl space-y-4 ${
+                isFullscreen ? 'my-auto' : 'pb-6'
+              }`}
+            >
               {presentation.slides.map((sl, idx) => (
                 <div
                   key={sl.slideNumber}
